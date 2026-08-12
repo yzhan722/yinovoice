@@ -1,0 +1,22 @@
+# Server Demo Postgres for Yino (do not conflict with booking-system on :5432).
+services:
+  postgres:
+    image: postgres:17
+    container_name: yino-platform-postgres
+    environment:
+      POSTGRES_USER: yino
+      POSTGRES_PASSWORD: yino
+      POSTGRES_DB: yino_platform
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - yino_pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yino -d yino_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  yino_pg_data:

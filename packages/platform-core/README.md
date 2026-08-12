@@ -1,0 +1,49 @@
+# Platform Core
+
+YinoVapi Platform Core：知识检索 + **语音客服文本 turn 编排**（RAGFlow 仅作知识后端）。
+
+## Install
+
+```bash
+cd YinoVapi/services/platform-core
+python -m pip install -e ".[dev,demo]"
+python -m pytest -q
+```
+
+## Knowledge (RAG)
+
+```bash
+python -m platform_core.retrieve --tenant demo --q "诊所营业时间"
+# Admin BFF:
+python -m platform_core.knowledge_demo_server
+```
+
+See `yinoai/integrations/ragflow/README.md`.
+
+## Voice turn orchestration (P0)
+
+配置种子：`yinoai/integrations/platform-core/`（实例 `1001` 对齐 Admin 太平洋口腔 Demo）。
+
+```python
+from platform_core.config.loader import InstanceRepository
+from platform_core.providers.knowledge.fake import FakeKnowledgeProvider
+from platform_core.runtime.knowledge import KnowledgeRuntime
+from platform_core.runtime.turn import TurnInput
+from platform_core.runtime.voice_agent import VoiceAgentOrchestrator
+
+orch = VoiceAgentOrchestrator(
+    instances=InstanceRepository(),
+    knowledge=KnowledgeRuntime(FakeKnowledgeProvider({...})),
+)
+out = await orch.handle_turn(TurnInput(instance_id="1001", user_text="诊所几点营业？"))
+```
+
+本地调试 HTTP（默认 `:8788`）：
+
+```bash
+python -m platform_core.api.turn_server
+# POST http://127.0.0.1:8788/api/voice/turn
+# {"instance_id":"1001","user_text":"我想预约洗牙"}
+```
+
+设计文档：`docs/superpowers/specs/2026-08-04-voice-agent-orchestrator-design.md`

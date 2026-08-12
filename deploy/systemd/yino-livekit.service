@@ -1,0 +1,14 @@
+[Unit]
+Description=Yino LiveKit Server (8.215.80.82)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/yino-vapi/bin/livekit-server --config /opt/yino-vapi/config/livekit.yaml
+Restart=always
+RestartSec=3
+User=root
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

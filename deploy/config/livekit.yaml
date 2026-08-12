@@ -1,0 +1,17 @@
+# LiveKit Server 生产配置（部署到 8.215.80.82）
+# keys 由 deploy.sh 从 platform-api.env 注入为明文；不要使用 api_key/api_secret 字段
+port: 7880
+bind_addresses: ["0.0.0.0"]
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+keys:
+  CHANGE_ME_API_KEY: CHANGE_ME_API_SECRET
+room:
+  auto_create: true
+  empty_timeout: 300
+  enable_remote_unmute: true
+logging:
+  level: info

@@ -1,0 +1,240 @@
+.light {
+  &.login-wrapper {
+    background-color: white;
+    background-image: url('@/assets/login-bg-1.png');
+    //  宽度60%，高度100%，cover
+    //background-size: 65% 100%;
+    background-size: cover;
+    background-repeat: no-repeat;
+  }
+}
+
+.dark {
+  &.login-wrapper {
+    background-color: var(--td-bg-color-page);
+    background-image: url('@/assets/login-bg-1.png');
+    //background-size: 65% 100%;
+    background-size: cover;
+    background-repeat: no-repeat;
+  }
+}
+
+.login-wrapper {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-size: cover;
+  background-position: 100%;
+  position: relative;
+}
+
+.login-container {
+  position: absolute;
+  top: 22%;
+  left: 5%;
+  min-height: 500px;
+  background-color: white;
+  padding: 50px;
+  border-radius: 16px;
+  border: 1px solid var(--demo-line, #e4ece9);
+  box-shadow: 0 8px 24px rgba(15, 40, 35, 0.06);
+  font-family: var(--demo-font, inherit);
+}
+
+.title-container {
+  .title {
+    font: var(--td-font-headline-large);
+    font-weight: 800;
+    color: var(--demo-ink, #12231f);
+    margin-top: var(--td-comp-margin-xs);
+
+    &.margin-no {
+      margin-top: 0;
+    }
+  }
+
+  .sub-title {
+    margin-top: var(--td-comp-margin-xxl);
+
+    .tip {
+      display: inline-block;
+      margin-right: var(--td-comp-margin-s);
+      font: var(--td-font-body-medium);
+
+      &:first-child {
+        color: var(--td-text-color-secondary);
+      }
+
+      &:last-child {
+        color: var(--td-text-color-primary);
+        cursor: pointer;
+      }
+    }
+  }
+}
+
+.item-container {
+  width: 400px;
+  margin-top: var(--td-comp-margin-xxxxl);
+
+  &.login-qrcode {
+    .tip-container {
+      margin-bottom: var(--td-comp-margin-l);
+      font: var(--td-font-body-medium);
+      display: flex;
+      align-items: flex-start;
+
+      .tip {
+        color: var(--td-text-color-primary);
+        margin-right: var(--td-comp-margin-s);
+      }
+
+      .refresh {
+        display: flex;
+        align-items: center;
+        color: var(--td-brand-color);
+
+        .t-icon {
+          font-size: var(--td-comp-size-xxxs);
+          margin-left: var(--td-comp-margin-xs);
+        }
+
+        &:hover {
+          cursor: pointer;
+        }
+      }
+    }
+
+    .bottom-container {
+      margin-top: 32px;
+    }
+  }
+
+  &.login-phone {
+    .bottom-container {
+      margin-top: 66px;
+    }
+  }
+
+  .check-container {
+    display: flex;
+    align-items: center;
+
+    &.remember-pwd {
+      margin-bottom: var(--td-comp-margin-l);
+      justify-content: space-between;
+    }
+
+    span {
+      color: var(--td-brand-color);
+
+      &:hover {
+        cursor: pointer;
+      }
+    }
+  }
+
+  .verification-code {
+    display: flex;
+    align-items: center;
+
+    :deep(.t-form__controls) {
+      width: 100%;
+
+      button {
+        flex-shrink: 0;
+        margin-left: var(--td-comp-margin-l);
+        width: 128px;
+      }
+    }
+  }
+
+  .btn-container {
+    margin-top: var(--td-comp-margin-xxxxl);
+  }
+}
+
+.switch-container {
+  margin-top: var(--td-comp-margin-xxl);
+
+  .tip {
+    font: var(--td-font-body-medium);
+    color: var(--td-brand-color);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    margin-right: var(--td-comp-margin-l);
+
+    &:last-child {
+      &::after {
+        display: none;
+      }
+    }
+
+    &::after {
+      content: '';
+      display: block;
+      width: 1px;
+      height: 12px;
+      background: var(--td-component-stroke);
+      margin-left: var(--td-comp-margin-l);
+    }
+  }
+}
+
+.check-container {
+  font: var(--td-font-body-medium);
+  color: var(--td-text-color-secondary);
+
+  .tip {
+    float: right;
+    font: var(--td-font-body-medium);
+    color: var(--td-brand-color);
+  }
+}
+
+.copyright {
+  font: var(--td-font-body-medium);
+  position: absolute;
+  left: 5%;
+  bottom: 64px;
+  //color: var(--td-text-color-secondary);
+  color: #ffffff;
+  font-weight: bold;
+}
+
+@media screen and (max-height: 700px) {
+  .copyright {
+    display: none;
+  }
+}
+
+@media screen and (max-width: 768px) {
+  .login-wrapper {
+    background-position: center;
+  }
+
+  .login-container {
+    position: relative;
+    top: auto;
+    left: auto;
+    margin: 48px 16px 24px;
+    width: auto;
+    min-height: 0;
+    padding: 28px 20px;
+    box-sizing: border-box;
+  }
+
+  .item-container {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .copyright {
+    position: static;
+    margin: 24px 16px;
+    text-align: center;
+    color: var(--td-text-color-secondary);
+  }
+}
+

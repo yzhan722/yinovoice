@@ -1,0 +1,1 @@
+"""Yino local voice agent."""

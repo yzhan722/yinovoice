@@ -1,0 +1,14 @@
+default_tenant_id: demo
+
+tenants:
+  demo:
+    dataset_ids:
+      - "REPLACE_WITH_RAGFLOW_DATASET_ID"
+    top_k: 5
+    similarity_threshold: 0.2
+  # alias kept for older templates
+  demo-tenant:
+    dataset_ids:
+      - "REPLACE_WITH_RAGFLOW_DATASET_ID"
+    top_k: 5
+    similarity_threshold: 0.2

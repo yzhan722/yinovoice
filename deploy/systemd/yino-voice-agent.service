@@ -1,0 +1,17 @@
+[Unit]
+Description=Yino Voice Agent (LiveKit worker, Qwen Realtime)
+After=network.target yino-platform-api.service
+Requires=yino-platform-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/yino-vapi/voice-agent
+EnvironmentFile=/opt/yino-vapi/config/voice-agent.env
+# 使用 dev 模式启动（livekit-agents Python CLI）；生产模式需 lk agent dev 守护进程
+ExecStart=/opt/yino-vapi/voice-agent/.venv/bin/python -m yino_voice_agent.server dev
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

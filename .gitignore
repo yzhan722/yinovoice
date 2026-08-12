@@ -1,0 +1,56 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+credentials/
+secrets/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build output
+dist/
+build/
+.next/
+out/
+coverage/
+dev-dist/
+
+# Cache and temporary files
+.cache/
+.tmp/
+temp/
+tmp/
+*.log
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+
+# Sensitive business data
+recordings/
+call-recordings/
+customer-private-data/
+patient-data/
+medical-data/
+database-backups/
+exports-private/
+
+# Local runtime data
+data/
+storage/
+uploads/
+
+# Deploy local env overlays (never commit real values)
+deploy/config/*.env
+!deploy/config/*.env.example

@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: yino
+      POSTGRES_PASSWORD: yino
+      POSTGRES_DB: yino_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - yino_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yino -d yino_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  yino_pg_data:

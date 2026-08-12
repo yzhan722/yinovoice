@@ -1,0 +1,143 @@
+/* Learnova B3 — purple/indigo fidelity (not dental teal). */
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=swap');
+
+:root {
+  --demo-bg: #f5f6fa;
+  --demo-card: #ffffff;
+  --demo-ink: #1e1b4b;
+  --demo-muted: #6b7280;
+  --demo-line: #e8e9f2;
+  --demo-primary: #5b4dff;
+  --demo-primary-deep: #4f46e5;
+  --demo-primary-soft: #eef0ff;
+  --demo-accent: #f59e0b;
+  --demo-ok: #22c55e;
+  --demo-warn: #f59e0b;
+  --demo-danger: #ef4444;
+  --demo-info: #38bdf8;
+  --demo-radius: 18px;
+  --demo-shadow: 0 10px 28px rgba(79, 70, 229, 0.08);
+  --demo-font: 'Poppins', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --demo-bottom-nav-h: 64px;
+}
+
+html,
+body {
+  font-family: var(--demo-font);
+  background: var(--demo-bg);
+  color: var(--demo-ink);
+}
+
+.t-layout,
+.t-layout__content,
+.tdesign-starter-layout,
+.tdesign-starter-content-layout {
+  background: var(--demo-bg) !important;
+}
+
+.tdesign-starter-content-layout {
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 768px) {
+  .tdesign-starter-content-layout {
+    padding-bottom: calc(var(--demo-bottom-nav-h) + 20px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .tdesign-starter-footer-layout {
+    display: none !important;
+  }
+}
+
+.t-button--theme-primary {
+  --td-brand-color: var(--demo-primary);
+}
+
+.demo-card {
+  background: var(--demo-card);
+  border: 1px solid var(--demo-line);
+  border-radius: var(--demo-radius);
+  box-shadow: var(--demo-shadow);
+}
+
+.demo-page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 8px 4px 40px;
+  font-family: var(--demo-font);
+}
+
+.demo-page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--demo-ink);
+}
+
+.demo-page-sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--demo-muted);
+}
+
+.demo-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: #eceef8;
+  border-radius: 999px;
+}
+
+.demo-tab {
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--demo-muted);
+  cursor: pointer;
+  font-family: inherit;
+
+  &.active {
+    background: #fff;
+    color: var(--demo-primary);
+    box-shadow: 0 2px 8px rgba(91, 77, 255, 0.12);
+  }
+}
+
+.demo-list-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--demo-card);
+  border: 1px solid var(--demo-line);
+  border-radius: var(--demo-radius);
+  box-shadow: var(--demo-shadow);
+}
+
+.demo-prio {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+
+  &.high {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+  &.medium {
+    background: #ffedd5;
+    color: #ea580c;
+  }
+  &.low {
+    background: #e0e7ff;
+    color: #4f46e5;
+  }
+}

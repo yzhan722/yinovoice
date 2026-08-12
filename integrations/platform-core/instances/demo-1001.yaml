@@ -1,0 +1,17 @@
+instance_id: "1001"
+tenant_id: demo
+template_id: tpl-dental
+template_version: "1.0.0"
+display_name: 太平洋口腔 · 新北前台
+organization_name: 常州太平洋口腔（新北旗舰店）
+fields:
+  address: 常州市新北区通江南路266号（城市候机楼北侧 / 三井加油站旁）
+  business_hours: 周一至周日 08:30–17:30（无休假门诊）
+  contact_phone: "400-0519-020"
+  services: 种植牙, 隐形矫正, 舌侧矫正, 儿牙早矫, DSD美学修复, 洁牙洗牙
+tenant_prompt: |
+  你是该诊所前台语音客服。优先用知识库与机构字段回答营业时间、地址、项目与转人工方式。
+  需要预约时走预约工具，不得口头假装已预约成功。
+tool_ids:
+  - booking
+  - handoff

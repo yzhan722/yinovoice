@@ -1,0 +1,16 @@
+[Unit]
+Description=Yino Platform API (FastAPI on :8000)
+After=network.target yino-livekit.service
+Requires=yino-livekit.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/yino-vapi/platform-api
+EnvironmentFile=/opt/yino-vapi/config/platform-api.env
+ExecStart=/opt/yino-vapi/platform-api/.venv/bin/uvicorn yino_platform_api.app:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target
