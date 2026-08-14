@@ -150,6 +150,48 @@ describe('RealtimeVoiceService', () => {
     });
   });
 
+  it('lists tenant customer services with pagination and preserves UUID ids', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      items: [customerService()],
+      total: 1,
+    }));
+    const service = new RealtimeVoiceService({
+      baseUrl: 'http://api.test',
+      tenantId,
+    });
+
+    const page = await service.listCustomerServices({ limit: 10, offset: 20 });
+
+    expect(page.total).toBe(1);
+    expect(page.items[0].id).toBe(serviceId);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://api.test/api/v1/customer-services?limit=10&offset=20',
+    );
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('X-Tenant-ID')).toBe(tenantId);
+  });
+
+  it('creates a tenant customer service without server-owned fields', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse(customerService()));
+    const service = new RealtimeVoiceService({ baseUrl: 'http://api.test', tenantId });
+    const input = {
+      display_name: 'Synthetic Support',
+      organization_name: 'Demo Organization',
+      greeting: 'Hello, how may I help you?',
+      platform_prompt: '',
+      tenant_prompt: '',
+      voice: customerService().voice,
+      response: customerService().response,
+    };
+
+    await service.createCustomerService(input);
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://api.test/api/v1/customer-services');
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual(input);
+  });
+
   it('aborts a bounded request and never exposes the provider error', async () => {
     vi.useFakeTimers();
     vi.mocked(fetch).mockImplementation((_url, init) => (

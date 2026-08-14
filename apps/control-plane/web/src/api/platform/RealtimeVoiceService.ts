@@ -71,6 +71,11 @@ export interface CustomerServiceInstance {
   response: ResponseProfile;
 }
 
+export interface CustomerServicePage {
+  items: CustomerServiceInstance[];
+  total: number;
+}
+
 /** Name fields used by call-record normalization. */
 export type CustomerServiceSummary = Pick<
   CustomerServiceInstance,
@@ -79,6 +84,16 @@ export type CustomerServiceSummary = Pick<
 
 export interface CustomerServiceUpdateRequest {
   expected_version: number;
+  display_name: string;
+  organization_name: string;
+  greeting: string;
+  platform_prompt: string;
+  tenant_prompt: string;
+  voice: VoiceProfile;
+  response: ResponseProfile;
+}
+
+export interface CustomerServiceCreateInput {
   display_name: string;
   organization_name: string;
   greeting: string;
@@ -114,6 +129,11 @@ export interface CreateCallRecordRequest {
   messages: FinalTranscriptMessage[];
 }
 
+export interface UpdateCallRecordRequest {
+  status: CallRecordStatus;
+  messages?: FinalTranscriptMessage[];
+}
+
 export interface PlatformCallRecord extends CreateCallRecordRequest {
   id: string;
   tenant_id: string;
@@ -123,6 +143,7 @@ export interface PlatformCallRecord extends CreateCallRecordRequest {
   recording_mime_type: string | null;
   recording_size_bytes: number | null;
   recording_failure_code: string | null;
+  deleted_at?: string | null;
 }
 
 export interface PlatformCallRecordPage {
@@ -142,6 +163,8 @@ export interface NormalizedCallRecordListItem {
   customerPhone: '';
   success: 0 | 1;
   roomName: string;
+  deleted: boolean;
+  deletedAt: string | null;
   raw: PlatformCallRecord;
 }
 
@@ -192,6 +215,16 @@ export interface CallRecordFacade {
     recordId: string,
     signal?: AbortSignal,
   ): Promise<NormalizedCallRecordDetail>;
+  updateCallRecord?(
+    recordId: string,
+    update: UpdateCallRecordRequest,
+    signal?: AbortSignal,
+  ): Promise<PlatformCallRecord>;
+  deleteCallRecord?(recordId: string, signal?: AbortSignal): Promise<void>;
+  restoreCallRecord?(
+    recordId: string,
+    signal?: AbortSignal,
+  ): Promise<PlatformCallRecord>;
 }
 
 export const DEMO_TENANT_ID =
@@ -332,6 +365,32 @@ export class RealtimeVoiceService {
     );
   }
 
+  listCustomerServices(
+    page: { limit?: number; offset?: number } = {},
+    signal?: AbortSignal,
+  ): Promise<CustomerServicePage> {
+    const params = new URLSearchParams({
+      limit: String(page.limit ?? 20),
+      offset: String(page.offset ?? 0),
+    });
+    return this.request(
+      '/api/v1/customer-services?' + params.toString(),
+      { method: 'GET' },
+      signal,
+    );
+  }
+
+  createCustomerService(
+    input: CustomerServiceCreateInput,
+    signal?: AbortSignal,
+  ): Promise<CustomerServiceInstance> {
+    return this.request(
+      '/api/v1/customer-services',
+      { method: 'POST', body: JSON.stringify(input) },
+      signal,
+    );
+  }
+
   async updateCustomerService(
     customerServiceId: string,
     update: CustomerServiceUpdateRequest,
@@ -396,14 +455,59 @@ export class RealtimeVoiceService {
     );
   }
 
+  updateCallRecord(
+    recordId: string,
+    update: UpdateCallRecordRequest,
+    signal?: AbortSignal,
+  ): Promise<PlatformCallRecord> {
+    return this.request(
+      '/api/v1/call-records/' + encodeURIComponent(recordId),
+      {
+        method: 'PUT',
+        body: JSON.stringify(update),
+      },
+      signal,
+    );
+  }
+
+  async deleteCallRecord(recordId: string, signal?: AbortSignal): Promise<void> {
+    try {
+      await this.fetchWithTenant(
+        '/api/v1/call-records/' + encodeURIComponent(recordId),
+        { method: 'DELETE' },
+        signal,
+        async (response) => {
+          if (!response.ok) throw new Error('unsafe response');
+          return undefined;
+        },
+      );
+    } catch {
+      throw new Error(SAFE_PLATFORM_ERROR);
+    }
+  }
+
+  restoreCallRecord(
+    recordId: string,
+    signal?: AbortSignal,
+  ): Promise<PlatformCallRecord> {
+    return this.request(
+      '/api/v1/call-records/' + encodeURIComponent(recordId) + '/restore',
+      { method: 'POST' },
+      signal,
+    );
+  }
+
   listCallRecords(
-    page: { limit?: number; offset?: number } = {},
+    page: { limit?: number; offset?: number; includeDeleted?: boolean } = {},
     signal?: AbortSignal,
   ): Promise<PlatformCallRecordPage> {
     const params = new URLSearchParams({
       limit: String(page.limit ?? 20),
       offset: String(page.offset ?? 0),
     });
+    if (page.includeDeleted) {
+      params.set('include_deleted', 'true');
+    }
     return this.request(
       '/api/v1/call-records?' + params.toString(),
       { method: 'GET' },
@@ -420,7 +524,7 @@ export class RealtimeVoiceService {
   }
 
   async listNormalizedCallRecords(
-    page: { limit?: number; offset?: number } = {},
+    page: { limit?: number; offset?: number; includeDeleted?: boolean } = {},
     signal?: AbortSignal,
   ) {
     const records = await this.listCallRecords(page, signal);
@@ -461,6 +565,7 @@ function normalizePlatformCallListItem(
   record: PlatformCallRecord,
   serviceName: string,
 ): NormalizedCallRecordListItem {
+  const deletedAt = record.deleted_at ?? null;
   return {
     aacId: record.id,
     callId: record.id,
@@ -473,6 +578,8 @@ function normalizePlatformCallListItem(
     customerPhone: '',
     success: record.status === 'completed' ? 1 : 0,
     roomName: record.room_name,
+    deleted: Boolean(deletedAt),
+    deletedAt,
     raw: record,
   };
 }

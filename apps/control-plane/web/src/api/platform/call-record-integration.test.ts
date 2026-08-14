@@ -32,6 +32,7 @@ describe('call record page services', () => {
     expect(voice.listNormalizedCallRecords).toHaveBeenCalledWith({
       limit: 10,
       offset: 10,
+      includeDeleted: false,
     });
     expect(voice.getNormalizedCallRecord).toHaveBeenCalledWith('record-1');
     expect(result.total).toBe(1);
@@ -48,6 +49,7 @@ describe('call record page services', () => {
     expect(voice.listNormalizedCallRecords).toHaveBeenCalledWith({
       limit: 5,
       offset: 10,
+      includeDeleted: false,
     });
     expect(voice.getNormalizedCallRecord).toHaveBeenCalledWith('record-1');
   });

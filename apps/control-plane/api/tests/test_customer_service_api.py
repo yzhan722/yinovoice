@@ -7,6 +7,79 @@ from yino_platform_api.domain.customer_service import (
 )
 
 
+def test_list_customer_services_is_tenant_scoped(client, ids) -> None:
+    response = client.get(
+        "/api/v1/customer-services?limit=20&offset=0",
+        headers={"X-Tenant-ID": str(ids.tenant_id)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert [item["id"] for item in response.json()["items"]] == [
+        str(ids.instance_id)
+    ]
+
+    other = client.get(
+        "/api/v1/customer-services",
+        headers={"X-Tenant-ID": str(ids.other_tenant_id)},
+    )
+    assert other.status_code == 200
+    assert other.json() == {"items": [], "total": 0}
+
+
+def test_list_customer_services_validates_pagination(client, ids) -> None:
+    response = client.get(
+        "/api/v1/customer-services?limit=0&offset=-1",
+        headers={"X-Tenant-ID": str(ids.tenant_id)},
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_customer_service_owns_identity_and_is_queryable(client, ids) -> None:
+    response = client.post(
+        "/api/v1/customer-services",
+        headers={"X-Tenant-ID": str(ids.tenant_id)},
+        json={
+            "display_name": "Synthetic Support",
+            "organization_name": "Demo Organization",
+            "greeting": "Hello, how may I help you?",
+        },
+    )
+
+    assert response.status_code == 201
+    created = response.json()
+    assert created["tenant_id"] == str(ids.tenant_id)
+    assert created["version"] == 1
+    assert created["voice"]["tts_voice"] == "longanqian"
+    assert client.get(
+        f"/api/v1/customer-services/{created['id']}",
+        headers={"X-Tenant-ID": str(ids.tenant_id)},
+    ).status_code == 200
+    denied = client.get(
+        f"/api/v1/customer-services/{created['id']}",
+        headers={"X-Tenant-ID": str(ids.other_tenant_id)},
+    )
+    assert denied.status_code == 404
+
+
+def test_create_customer_service_rejects_server_owned_fields(client, ids) -> None:
+    response = client.post(
+        "/api/v1/customer-services",
+        headers={"X-Tenant-ID": str(ids.tenant_id)},
+        json={
+            "id": str(ids.instance_id),
+            "tenant_id": str(ids.other_tenant_id),
+            "version": 99,
+            "display_name": "Synthetic Support",
+            "organization_name": "Demo Organization",
+            "greeting": "Hello, how may I help you?",
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_get_customer_service_is_tenant_scoped(client, ids) -> None:
     response = client.get(
         f"/api/v1/customer-services/{ids.instance_id}",

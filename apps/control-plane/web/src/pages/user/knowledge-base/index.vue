@@ -118,14 +118,19 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
   CUSTOMER_SERVICE_VERSION_CONFLICT,
-  DEMO_CUSTOMER_SERVICE_ID,
   RealtimeVoiceService,
   TenantKnowledgeService,
   TTS_VOICE_OPTIONS,
 } from '@/api/platform';
+import {
+  loadStoredInstanceId,
+  resolveInstanceSelection,
+  storeInstanceId,
+} from '@/api/platform/instanceSelection';
 import type {
   CustomerServiceInstance,
   TtsVoiceId,
@@ -133,6 +138,7 @@ import type {
 
 const svc = new TenantKnowledgeService();
 const voiceSvc = new RealtimeVoiceService();
+const route = useRoute();
 const loading = ref(false);
 const uploading = ref(false);
 const files = ref<any[]>([]);
@@ -151,6 +157,7 @@ const tenantEditing = ref(false);
 const tenantSaving = ref(false);
 const voiceEditing = ref(false);
 const voiceSaving = ref(false);
+const selectedInstanceId = ref<string | null>(null);
 
 const columns = [
   { title: '文件名', colKey: 'filName', ellipsis: true },
@@ -194,7 +201,18 @@ async function load() {
 async function loadPrompt() {
   promptLoading.value = true;
   try {
-    const current = await voiceSvc.getCustomerService(DEMO_CUSTOMER_SERVICE_ID);
+    const page = await voiceSvc.listCustomerServices({ limit: 100, offset: 0 });
+    selectedInstanceId.value = resolveInstanceSelection({
+      availableIds: page.items.map((item) => item.id),
+      routeId: typeof route.query.instanceId === 'string' ? route.query.instanceId : null,
+      storedId: loadStoredInstanceId(),
+    });
+    storeInstanceId(selectedInstanceId.value);
+    if (!selectedInstanceId.value) {
+      instance.value = null;
+      return;
+    }
+    const current = await voiceSvc.getCustomerService(selectedInstanceId.value);
     applyInstance(current);
   } catch (_) {
     instance.value = null;

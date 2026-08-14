@@ -207,6 +207,9 @@ class CallRecordRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     voice_agent_instance: Mapped[VoiceAgentInstance] = relationship(
         back_populates="call_records"

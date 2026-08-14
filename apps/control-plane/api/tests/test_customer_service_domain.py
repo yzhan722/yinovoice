@@ -4,13 +4,34 @@ import pytest
 from pydantic import ValidationError
 
 from yino_platform_api.domain.customer_service import (
+    CustomerServiceCreate,
     CustomerServiceInstance,
     ResponseProfile,
     VoiceProfile,
 )
 from yino_platform_api.repositories.customer_services import (
+    CustomerServiceAlreadyExists,
     InMemoryCustomerServiceRepository,
 )
+
+
+def test_customer_service_create_uses_safe_defaults_and_forbids_server_fields() -> None:
+    request = CustomerServiceCreate(
+        display_name="Demo Reception",
+        organization_name="Synthetic Demo Organization",
+        greeting="Hello, how may I help you?",
+    )
+
+    assert request.voice == VoiceProfile()
+    assert request.response == ResponseProfile()
+
+    with pytest.raises(ValidationError):
+        CustomerServiceCreate.model_validate(
+            {
+                **request.model_dump(),
+                "tenant_id": str(uuid4()),
+            }
+        )
 
 
 def test_voice_profile_accepts_operator_governed_preset_and_safe_controls() -> None:
@@ -168,3 +189,40 @@ async def test_repository_save_makes_an_instance_available_to_its_tenant() -> No
 
     assert await repository.save(instance) is instance
     assert await repository.get(instance.id, tenant_id) is instance
+
+
+@pytest.mark.asyncio
+async def test_repository_create_rejects_duplicate_instance() -> None:
+    instance = CustomerServiceInstance.demo(
+        instance_id=uuid4(),
+        tenant_id=uuid4(),
+    )
+    repository = InMemoryCustomerServiceRepository()
+
+    assert await repository.create(instance) is instance
+    with pytest.raises(CustomerServiceAlreadyExists):
+        await repository.create(instance)
+
+
+@pytest.mark.asyncio
+async def test_repository_lists_only_requested_tenant_with_pagination() -> None:
+    tenant_id = uuid4()
+    other_tenant_id = uuid4()
+    first = CustomerServiceInstance.demo(
+        instance_id=uuid4(), tenant_id=tenant_id
+    ).model_copy(update={"display_name": "实例一"})
+    second = CustomerServiceInstance.demo(
+        instance_id=uuid4(), tenant_id=tenant_id
+    ).model_copy(update={"display_name": "实例二"})
+    other = CustomerServiceInstance.demo(
+        instance_id=uuid4(), tenant_id=other_tenant_id
+    )
+    repository = InMemoryCustomerServiceRepository([first, second, other])
+
+    items, total = await repository.list_for_tenant(
+        tenant_id, limit=1, offset=1
+    )
+
+    assert total == 2
+    assert len(items) == 1
+    assert items[0].tenant_id == tenant_id

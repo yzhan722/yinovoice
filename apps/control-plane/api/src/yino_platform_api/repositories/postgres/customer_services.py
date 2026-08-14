@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ...db.models import VoiceAgentInstance
@@ -15,7 +16,10 @@ from ...domain.customer_service import (
     ResponseProfile,
     VoiceProfile,
 )
-from ..customer_services import CustomerServiceVersionConflict
+from ..customer_services import (
+    CustomerServiceAlreadyExists,
+    CustomerServiceVersionConflict,
+)
 
 
 def _to_domain(row: VoiceAgentInstance) -> CustomerServiceInstance:
@@ -52,6 +56,33 @@ class PostgresCustomerServiceRepository:
             if row is None:
                 return None
             return _to_domain(row)
+
+    async def list_for_tenant(
+        self,
+        tenant_id: UUID,
+        *,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[CustomerServiceInstance], int]:
+        async with self._sessions() as session:
+            total = await session.scalar(
+                select(func.count())
+                .select_from(VoiceAgentInstance)
+                .where(VoiceAgentInstance.tenant_id == tenant_id)
+            )
+            rows = (
+                await session.scalars(
+                    select(VoiceAgentInstance)
+                    .where(VoiceAgentInstance.tenant_id == tenant_id)
+                    .order_by(
+                        VoiceAgentInstance.updated_at.desc(),
+                        VoiceAgentInstance.id.desc(),
+                    )
+                    .offset(offset)
+                    .limit(limit)
+                )
+            ).all()
+            return [_to_domain(row) for row in rows], int(total or 0)
 
     async def save(
         self, instance: CustomerServiceInstance
@@ -114,4 +145,32 @@ class PostgresCustomerServiceRepository:
                 )
             )
             await session.commit()
+            return instance
+
+    async def create(
+        self, instance: CustomerServiceInstance
+    ) -> CustomerServiceInstance:
+        async with self._sessions() as session:
+            session.add(
+                VoiceAgentInstance(
+                    id=instance.id,
+                    tenant_id=instance.tenant_id,
+                    template_version_id=DEMO_TEMPLATE_VERSION_ID,
+                    version=instance.version,
+                    display_name=instance.display_name,
+                    organization_name=instance.organization_name,
+                    business_profile=instance.business_profile,
+                    primary_language=instance.primary_language,
+                    greeting=instance.greeting,
+                    platform_prompt=instance.platform_prompt,
+                    tenant_prompt=instance.tenant_prompt,
+                    voice_config=instance.voice.model_dump(mode="json"),
+                    response_config=instance.response.model_dump(mode="json"),
+                )
+            )
+            try:
+                await session.commit()
+            except IntegrityError as error:
+                await session.rollback()
+                raise CustomerServiceAlreadyExists() from error
             return instance

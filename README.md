@@ -76,12 +76,14 @@ pnpm test
 - 平台说明：`docs/platform/`
 - 历史根文档：`docs/source-root/`
 - 迁移报告：`docs/migration/`
+- 当前项目上下文与对话交接：`docs/migration/Codex对话与项目上下文交接.md`
+- 文档索引：`docs/README.md`
 - 术语：`CONTEXT.md`
 - 安全：`SECURITY.md`
 
 ## 当前项目状态
 
-见 `PROJECT_STATUS.md`。本仓库由本机 Demo / worktree / LAN 增量整理而来；**原项目 Git 历史未并入**。
+见 `PROJECT_STATUS.md`。本仓库由本机 Demo / worktree / LAN 增量整理而来；**原项目 Git 历史未并入**。当前本地已有首次迁移提交；是否已发布到远程必须以 `git ls-remote origin` 或 GitHub 页面为准。
 
 ## 安全边界 / 不得上传
 

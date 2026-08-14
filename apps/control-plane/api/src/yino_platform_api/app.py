@@ -113,7 +113,7 @@ def create_app(
         ],
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):\d+",
         allow_credentials=False,
-        allow_methods=["GET", "PUT", "POST"],
+        allow_methods=["GET", "PUT", "POST", "DELETE"],
         allow_headers=["Content-Type", "X-Tenant-ID"],
     )
     resolved_recording_dir = (

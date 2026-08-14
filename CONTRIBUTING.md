@@ -14,6 +14,8 @@
 4. 确认 `git status` 无敏感文件  
 5. 通过 GitHub Desktop 提交；按权限直接推送或开 PR  
 
+首次迁移或跨模块大改默认使用新分支和 Pull Request。拥有直接推送权限不等于应绕过审查；是否强制 PR 以仓库 rulesets/branch protection 为准。
+
 ## 代码与文档
 
 - 遵循 `AGENTS.md` 架构边界与 `SECURITY.md`  
@@ -26,3 +28,14 @@
 - [ ] 无录音与导出隐私数据  
 - [ ] 无 `node_modules` / `.venv` / 大日志  
 - [ ] 无嵌套 `.git`  
+
+## 提交拆分建议
+
+- 治理、规则和文档索引
+- Control Plane API 与数据模型
+- Runtime、LiveKit Agents 与 SIP
+- Vapi Adapter、API/Webhook 与外部集成
+- 部署、测试和 CI
+- 脱敏知识库与业务说明
+
+不要为了拆分而修改业务逻辑；每个提交应能独立说明目的和验证结果。

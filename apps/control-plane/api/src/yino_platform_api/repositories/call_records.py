@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -15,9 +16,18 @@ class CallRecordRepository(Protocol):
         *,
         limit: int,
         offset: int,
+        include_deleted: bool = False,
     ) -> tuple[list[CallRecord], int]: ...
 
     async def get(self, record_id: UUID, tenant_id: UUID) -> CallRecord | None: ...
+
+    async def soft_delete(
+        self, record_id: UUID, tenant_id: UUID
+    ) -> CallRecord | None: ...
+
+    async def restore(
+        self, record_id: UUID, tenant_id: UUID
+    ) -> CallRecord | None: ...
 
 
 class InMemoryCallRecordRepository:
@@ -35,12 +45,14 @@ class InMemoryCallRecordRepository:
         *,
         limit: int,
         offset: int,
+        include_deleted: bool = False,
     ) -> tuple[list[CallRecord], int]:
         records = sorted(
             (
                 record
                 for (record_tenant_id, _), record in self._records.items()
                 if record_tenant_id == tenant_id
+                and (include_deleted or record.deleted_at is None)
             ),
             key=lambda record: (record.created_at, record.id.int),
             reverse=True,
@@ -51,3 +63,28 @@ class InMemoryCallRecordRepository:
     async def get(self, record_id: UUID, tenant_id: UUID) -> CallRecord | None:
         record = self._records.get((tenant_id, record_id))
         return record.model_copy(deep=True) if record is not None else None
+
+    async def soft_delete(
+        self, record_id: UUID, tenant_id: UUID
+    ) -> CallRecord | None:
+        record = self._records.get((tenant_id, record_id))
+        if record is None:
+            return None
+        if record.deleted_at is None:
+            record = record.model_copy(
+                update={"deleted_at": datetime.now(UTC)},
+                deep=True,
+            )
+            self._records[(tenant_id, record_id)] = record
+        return record.model_copy(deep=True)
+
+    async def restore(
+        self, record_id: UUID, tenant_id: UUID
+    ) -> CallRecord | None:
+        record = self._records.get((tenant_id, record_id))
+        if record is None:
+            return None
+        if record.deleted_at is not None:
+            record = record.model_copy(update={"deleted_at": None}, deep=True)
+            self._records[(tenant_id, record_id)] = record
+        return record.model_copy(deep=True)
