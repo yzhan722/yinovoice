@@ -209,6 +209,28 @@ class CustomerServiceInstance(BaseModel):
         )
 
 
+class CustomerServiceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str = Field(min_length=1, max_length=80)
+    organization_name: str = Field(min_length=1, max_length=120)
+    greeting: str = Field(min_length=1, max_length=300)
+    platform_prompt: str = Field(default="", max_length=8000)
+    tenant_prompt: str = Field(default="", max_length=8000)
+    voice: VoiceProfile = Field(default_factory=VoiceProfile)
+    response: ResponseProfile = Field(default_factory=ResponseProfile)
+
+    @field_validator("display_name", "organization_name")
+    @classmethod
+    def validate_single_line_tenant_text(cls, value: str) -> str:
+        return _clean_single_line(value)
+
+    @field_validator("greeting")
+    @classmethod
+    def validate_greeting(cls, value: str) -> str:
+        return _validate_greeting(value)
+
+
 class CustomerServiceUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

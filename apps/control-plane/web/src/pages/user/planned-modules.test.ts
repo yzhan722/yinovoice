@@ -31,6 +31,12 @@ vi.mock('@/api/platform', () => ({
     }
   },
   RealtimeVoiceService: class {
+    listCustomerServices() {
+      return Promise.resolve({
+        items: [{ id: '00000000-0000-0000-0000-000000000101' }],
+        total: 1,
+      });
+    }
     getCustomerService() {
       return Promise.resolve({
         id: '00000000-0000-0000-0000-000000000101',
@@ -65,6 +71,14 @@ vi.mock('@/api/platform', () => ({
       return Promise.resolve({});
     }
   },
+}));
+
+vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }) }));
+vi.mock('@/api/platform/instanceSelection', () => ({
+  loadStoredInstanceId: (): string | null => null,
+  resolveInstanceSelection: ({ availableIds }: { availableIds: string[] }): string | null =>
+    availableIds[0] || null,
+  storeInstanceId: (_instanceId: string | null): void => {},
 }));
 
 import AppointmentsPage from './appointments/index.vue';

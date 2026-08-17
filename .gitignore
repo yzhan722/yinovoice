@@ -28,6 +28,7 @@ temp/
 tmp/
 *.log
 __pycache__/
+*.egg-info/
 .pytest_cache/
 .mypy_cache/
 .venv/
@@ -44,7 +45,19 @@ customer-private-data/
 patient-data/
 medical-data/
 database-backups/
+*.sql
+*.dump
+*.bak
 exports-private/
+
+# Audio and call artifacts
+*.wav
+*.mp3
+*.m4a
+*.webm
+*.ogg
+*.flac
+*.aac
 
 # Local runtime data
 data/

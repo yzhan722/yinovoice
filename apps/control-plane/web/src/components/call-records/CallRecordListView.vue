@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import {
@@ -19,6 +19,9 @@ const recordService = props.scope === 'operator'
 const records = ref<NormalizedCallRecordListItem[]>([]);
 const loading = ref(true);
 const errorMessage = ref('');
+const actionError = ref('');
+const busyId = ref('');
+const showDeleted = ref(false);
 const current = ref(1);
 const pageSize = 10;
 const total = ref(0);
@@ -47,6 +50,10 @@ const shortId = (value: string) => (
   value && value.length > 14 ? value.slice(0, 12) + '…' : value || '—'
 );
 
+const recordKey = (record: NormalizedCallRecordListItem) => (
+  String(record.aacId || record.callId)
+);
+
 const load = async () => {
   const generation = ++loadGeneration;
   loading.value = true;
@@ -56,6 +63,7 @@ const load = async () => {
       current: current.value,
       page: current.value,
       pageSize,
+      includeDeleted: showDeleted.value,
     });
     if (generation !== loadGeneration) return;
     records.value = response?.records || response?.list || [];
@@ -71,13 +79,47 @@ const load = async () => {
 };
 
 const viewDetail = (record: NormalizedCallRecordListItem) => {
+  if (record.deleted) return;
   const name = props.scope === 'operator'
     ? 'AdminCallHistoryDetail'
     : 'UserCallHistoryDetail';
   void router.push({
     name,
-    params: { id: String(record.aacId || record.callId) },
+    params: { id: recordKey(record) },
   });
+};
+
+const removeRecord = async (record: NormalizedCallRecordListItem) => {
+  const id = recordKey(record);
+  if (!id || busyId.value || record.deleted) return;
+  if (!window.confirm('确认软删除这条通话记录？可勾选“显示已删除”后恢复。')) {
+    return;
+  }
+  busyId.value = id;
+  actionError.value = '';
+  try {
+    await recordService.remove(id);
+    await load();
+  } catch {
+    actionError.value = '删除失败，请稍后重试。';
+  } finally {
+    busyId.value = '';
+  }
+};
+
+const restoreRecord = async (record: NormalizedCallRecordListItem) => {
+  const id = recordKey(record);
+  if (!id || busyId.value || !record.deleted) return;
+  busyId.value = id;
+  actionError.value = '';
+  try {
+    await recordService.restore(id);
+    await load();
+  } catch {
+    actionError.value = '恢复失败，请稍后重试。';
+  } finally {
+    busyId.value = '';
+  }
 };
 
 const changePage = (next: number) => {
@@ -85,6 +127,11 @@ const changePage = (next: number) => {
   current.value = next;
   void load();
 };
+
+watch(showDeleted, () => {
+  current.value = 1;
+  void load();
+});
 
 onMounted(load);
 </script>
@@ -103,15 +150,26 @@ onMounted(load);
       演示租户范围：当前使用配置的 Demo tenant header，仅供联调查看，不代表全局生产 RBAC。
     </aside>
 
+    <section class="toolbar">
+      <label class="toggle">
+        <input v-model="showDeleted" type="checkbox" data-testid="show-deleted" />
+        显示已删除
+      </label>
+      <p class="hint">
+        已删除记录需先点「恢复」，才能打开详情继续修改。
+      </p>
+    </section>
+
     <section class="records-card">
       <div v-if="loading" class="state-box">正在加载通话记录…</div>
       <div v-else-if="errorMessage" class="state-box is-error" role="alert">
         {{ errorMessage }}
       </div>
       <div v-else-if="!records.length" class="state-box">
-        暂无网页语音 Demo 记录
+        {{ showDeleted ? '暂无通话记录（含已删除）' : '暂无网页语音 Demo 记录' }}
       </div>
       <div v-else class="records-table-wrap">
+        <p v-if="actionError" class="inline-error" role="alert">{{ actionError }}</p>
         <table class="records-table">
           <thead>
             <tr>
@@ -125,8 +183,15 @@ onMounted(load);
             </tr>
           </thead>
           <tbody>
-            <tr v-for="record in records" :key="record.aacId">
-              <td><code>{{ shortId(record.callId) }}</code></td>
+            <tr
+              v-for="record in records"
+              :key="record.aacId"
+              :class="{ 'is-deleted': record.deleted }"
+            >
+              <td>
+                <code>{{ shortId(record.callId) }}</code>
+                <span v-if="record.deleted" class="deleted-tag">已删除</span>
+              </td>
               <td>{{ record.assistantName || '—' }}</td>
               <td><span class="direction-tag">网页语音</span></td>
               <td>
@@ -136,9 +201,33 @@ onMounted(load);
               </td>
               <td>{{ formatDateTime(record.startedAt) }}</td>
               <td>{{ record.durationSec != null ? record.durationSec + ' 秒' : '—' }}</td>
-              <td>
-                <button type="button" class="link-button" @click="viewDetail(record)">
+              <td class="actions-cell">
+                <button
+                  v-if="!record.deleted"
+                  type="button"
+                  class="link-button"
+                  @click="viewDetail(record)"
+                >
                   查看详情
+                </button>
+                <button
+                  v-if="!record.deleted"
+                  type="button"
+                  class="link-button is-danger"
+                  :disabled="busyId === recordKey(record)"
+                  @click="removeRecord(record)"
+                >
+                  {{ busyId === recordKey(record) ? '删除中…' : '删除' }}
+                </button>
+                <button
+                  v-if="record.deleted"
+                  type="button"
+                  class="link-button"
+                  data-testid="restore-button"
+                  :disabled="busyId === recordKey(record)"
+                  @click="restoreRecord(record)"
+                >
+                  {{ busyId === recordKey(record) ? '恢复中…' : '恢复' }}
                 </button>
               </td>
             </tr>
@@ -185,51 +274,54 @@ h1 {
   font-size: 26px;
 }
 
-.page-head p {
+.page-head p,
+.hint {
   margin: 7px 0 0;
-  color: var(--td-text-color-secondary, #5e626b);
+  color: #687386;
+  font-size: 13px;
 }
 
 .demo-tag,
 .direction-tag,
-.status-tag {
+.status-tag,
+.deleted-tag {
   display: inline-flex;
-  padding: 5px 9px;
-  font-weight: 700;
-  font-size: 12px;
+  align-items: center;
+  padding: 3px 9px;
   border-radius: 999px;
+  font-size: 12px;
 }
 
-.demo-tag,
-.direction-tag {
-  color: #0052d9;
-  background: #e8f1ff;
+.demo-tag {
+  color: #5b6472;
+  background: #eef1f5;
 }
 
-.scope-notice {
-  padding: 12px 15px;
-  color: #76520e;
-  line-height: 1.6;
-  background: #fff8e6;
-  border: 1px solid #f3d999;
-  border-radius: 9px;
-}
-
+.toolbar,
+.scope-notice,
 .records-card {
-  overflow: hidden;
-  background: var(--td-bg-color-container, #fff);
-  border: 1px solid var(--td-component-stroke, #e6e8eb);
+  padding: 16px 18px;
+  background: #fff;
+  border: 1px solid #e6ebf1;
   border-radius: 12px;
-  box-shadow: 0 12px 34px rgb(31 66 111 / 6%);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .state-box {
-  padding: 56px 20px;
-  color: #7a8492;
+  padding: 28px 8px;
+  color: #687386;
   text-align: center;
 }
 
-.state-box.is-error {
+.state-box.is-error,
+.inline-error {
   color: #a63737;
 }
 
@@ -262,6 +354,17 @@ td {
   font-size: 14px;
 }
 
+tr.is-deleted td {
+  background: #fbfbfc;
+  color: #8a93a3;
+}
+
+.deleted-tag {
+  margin-left: 8px;
+  color: #8a4b4b;
+  background: #fdeeee;
+}
+
 .status-tag.is-success {
   color: #176642;
   background: #e8f8f0;
@@ -277,12 +380,27 @@ td {
   background: #fff0f0;
 }
 
+.actions-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .link-button {
   padding: 0;
   color: var(--td-brand-color, #0052d9);
   background: transparent;
   border: 0;
   cursor: pointer;
+}
+
+.link-button.is-danger {
+  color: #a63737;
+}
+
+.link-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .pagination {

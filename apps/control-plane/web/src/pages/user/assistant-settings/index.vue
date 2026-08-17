@@ -5,53 +5,72 @@
         <h1 class="title">我的实例</h1>
         <p class="sub">预置语音前台 · 查看机构配置与通话接入位</p>
       </div>
+      <button data-testid="new-instance" type="button" class="new-button" @click="showCreate = true">
+        新建实例
+      </button>
     </div>
 
     <div v-if="loading" class="state">加载中…</div>
+    <div v-else-if="loadFailed" role="alert" class="state error-state">
+      实例加载失败，请稍后重试。
+    </div>
     <div v-else-if="list.length === 0" class="state">暂无实例</div>
     <div v-else class="list">
       <button
         v-for="item in list"
-        :key="item.attId"
+        :key="item.id"
         type="button"
         class="row"
-        @click="goDetail(item.attId)"
+        @click="goDetail(item.id)"
       >
         <div class="row-main">
           <div class="name-row">
-            <span class="name">{{ item.attName || '未命名实例' }}</span>
+            <span class="name">{{ item.display_name || '未命名实例' }}</span>
             <t-tag theme="success" variant="light" size="small">演示就绪</t-tag>
           </div>
-          <div class="meta">{{ item.templateName || item.templateId }} · v{{ item.templateVersion }}</div>
-          <div v-if="item.orgName" class="org">{{ item.orgName }} · {{ item.businessHours || '营业时间见详情' }}</div>
+          <div class="meta">{{ item.business_profile }} · v{{ item.version }}</div>
+          <div v-if="item.organization_name" class="org">{{ item.organization_name }} · {{ item.primary_language }}</div>
           <div class="score"><span class="gpa">8.6</span><span class="unit">/10 实例健康分</span></div>
         </div>
         <span class="arrow">查看详情</span>
       </button>
     </div>
+    <InstanceCreateDialog v-if="showCreate" @close="showCreate = false" @created="onCreated" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { TenantInstanceService } from '@/api/platform';
+import { RealtimeVoiceService } from '@/api/platform';
+import { storeInstanceId } from '@/api/platform/instanceSelection';
+import type { CustomerServiceInstance } from '@/api/platform/RealtimeVoiceService';
+import InstanceCreateDialog from './InstanceCreateDialog.vue';
 
 const router = useRouter();
-const svc = new TenantInstanceService();
+const svc = new RealtimeVoiceService();
 const loading = ref(true);
-const list = ref<any[]>([]);
+const loadFailed = ref(false);
+const showCreate = ref(false);
+const list = ref<CustomerServiceInstance[]>([]);
 
-function goDetail(attId: number) {
-  router.push({ name: 'UserAssistantDetail', params: { attId: String(attId) } });
+function goDetail(instanceId: string) {
+  storeInstanceId(instanceId);
+  router.push({ name: 'KnowledgeBaseIndex', query: { instanceId } });
+}
+
+function onCreated(instance: CustomerServiceInstance) {
+  showCreate.value = false;
+  goDetail(instance.id);
 }
 
 onMounted(async () => {
   try {
-    const res: any = await svc.getMyList();
-    list.value = Array.isArray(res) ? res : res?.list ?? [];
+    const res = await svc.listCustomerServices({ limit: 100, offset: 0 });
+    list.value = res.items;
   } catch (_) {
     list.value = [];
+    loadFailed.value = true;
   } finally {
     loading.value = false;
   }
@@ -67,8 +86,25 @@ onMounted(async () => {
 }
 
 .page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   margin-bottom: 18px;
 }
+
+.new-button {
+  flex-shrink: 0;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--demo-primary);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.error-state { color: #c62828; }
 
 .title {
   margin: 0;

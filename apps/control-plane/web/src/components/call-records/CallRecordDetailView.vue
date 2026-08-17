@@ -7,6 +7,7 @@ import {
   TenantCallRecordService,
 } from '@/api/platform';
 import type {
+  CallRecordStatus,
   NormalizedCallRecordDetail,
   NormalizedTranscriptMessage,
   RecordingStatus,
@@ -18,6 +19,15 @@ const props = defineProps<{
 
 interface CallRecordServiceFacade {
   getDetail: (recordId: string) => Promise<NormalizedCallRecordDetail>;
+  update: (
+    recordId: string,
+    update: { status: CallRecordStatus; messages: Array<{
+      role: 'user' | 'assistant';
+      text: string;
+      sequence: number;
+    }> },
+  ) => Promise<unknown>;
+  remove: (recordId: string) => Promise<void>;
   voiceService: {
     fetchCallRecordingBlob: (recordId: string, signal?: AbortSignal) => Promise<Blob>;
   };
@@ -29,8 +39,13 @@ const recordService = (props.scope === 'operator'
   ? new OperatorCallRecordService()
   : new TenantCallRecordService()) as CallRecordServiceFacade;
 const loading = ref(true);
+const saving = ref(false);
+const deleting = ref(false);
 const errorMessage = ref('');
+const actionError = ref('');
 const detail = ref<NormalizedCallRecordDetail | null>(null);
+const editStatus = ref<CallRecordStatus>('completed');
+const editMessages = ref<Array<{ role: 'user' | 'assistant'; text: string; sequence: number }>>([]);
 const recordingLoading = ref(false);
 const recordingError = ref(false);
 const audioUrl = ref('');
@@ -58,6 +73,8 @@ const messageText = (message: NormalizedTranscriptMessage) => (
   String(message.text || message.content)
 );
 
+const recordId = computed(() => String(route.params.id || ''));
+
 const goBack = () => {
   void router.push({
     name: props.scope === 'operator' ? 'AdminCallHistoryIndex' : 'CallHistoryIndex',
@@ -78,7 +95,7 @@ const resetRecordingState = () => {
   recordingError.value = false;
 };
 
-const loadRecording = async (recordId: string) => {
+const loadRecording = async (id: string) => {
   abortRecordingFetch();
   resetRecordingState();
   if (detail.value?.recording_status !== 'ready') return;
@@ -87,7 +104,7 @@ const loadRecording = async (recordId: string) => {
   recordingAbortController = controller;
   recordingLoading.value = true;
   try {
-    const blob = await recordService.voiceService.fetchCallRecordingBlob(recordId, controller.signal);
+    const blob = await recordService.voiceService.fetchCallRecordingBlob(id, controller.signal);
     if (controller.signal.aborted) return;
     audioUrl.value = URL.createObjectURL(blob);
   } catch {
@@ -103,8 +120,53 @@ const loadRecording = async (recordId: string) => {
   }
 };
 
+const applyDetailToForm = (value: NormalizedCallRecordDetail) => {
+  editStatus.value = (value.aacStatus || value.status || 'completed') as CallRecordStatus;
+  editMessages.value = (value.messages || []).map((message, index) => ({
+    role: message.role,
+    text: String(message.text || message.content || ''),
+    sequence: Number(message.sequence ?? index),
+  }));
+};
+
+const saveChanges = async () => {
+  if (!detail.value || saving.value) return;
+  saving.value = true;
+  actionError.value = '';
+  try {
+    await recordService.update(recordId.value, {
+      status: editStatus.value,
+      messages: editMessages.value.map((message, index) => ({
+        role: message.role,
+        text: message.text.trim(),
+        sequence: Number.isFinite(message.sequence) ? message.sequence : index,
+      })).filter((message) => message.text.length > 0),
+    });
+    detail.value = await recordService.getDetail(recordId.value);
+    applyDetailToForm(detail.value);
+  } catch {
+    actionError.value = '保存失败，请检查输入后重试。';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const removeRecord = async () => {
+  if (!detail.value || deleting.value) return;
+  if (!window.confirm('确认软删除这条通话记录？删除后将返回列表。')) return;
+  deleting.value = true;
+  actionError.value = '';
+  try {
+    await recordService.remove(recordId.value);
+    goBack();
+  } catch {
+    actionError.value = '删除失败，请稍后重试。';
+    deleting.value = false;
+  }
+};
+
 onMounted(async () => {
-  const id = String(route.params.id || '');
+  const id = recordId.value;
   if (!id) {
     loading.value = false;
     errorMessage.value = '缺少通话记录 ID。';
@@ -112,6 +174,7 @@ onMounted(async () => {
   }
   try {
     detail.value = await recordService.getDetail(id);
+    applyDetailToForm(detail.value);
   } catch {
     errorMessage.value = '无法加载 Demo 通话详情，请稍后重试。';
   } finally {
@@ -201,9 +264,50 @@ onBeforeUnmount(() => {
         <div v-else class="recording-state">无录音</div>
       </section>
 
+      <section class="edit-card">
+        <header>
+          <h2>编辑记录</h2>
+          <p>可修改状态与最终字幕；保存走 PUT，删除为软删除。</p>
+        </header>
+        <p v-if="actionError" class="inline-error" role="alert">{{ actionError }}</p>
+        <label class="field">
+          状态
+          <select v-model="editStatus" data-testid="edit-status">
+            <option value="completed">已完成</option>
+            <option value="interrupted">已中断</option>
+            <option value="failed">失败</option>
+          </select>
+        </label>
+        <div class="message-editor">
+          <label
+            v-for="(message, index) in editMessages"
+            :key="message.sequence + '-' + index"
+            class="field"
+          >
+            {{ message.role === 'user' ? '用户字幕' : 'AI 字幕' }} #{{ message.sequence }}
+            <textarea
+              v-model="message.text"
+              rows="2"
+              :data-testid="'edit-message-' + index"
+            />
+          </label>
+          <p v-if="!editMessages.length" class="transcript-empty">
+            本次通话没有可编辑的最终字幕
+          </p>
+        </div>
+        <div class="edit-actions">
+          <button type="button" class="danger-button" :disabled="deleting || saving" @click="removeRecord">
+            {{ deleting ? '删除中…' : '软删除' }}
+          </button>
+          <button type="button" class="primary-button" :disabled="saving || deleting" @click="saveChanges">
+            {{ saving ? '保存中…' : '保存修改' }}
+          </button>
+        </div>
+      </section>
+
       <section class="transcript-card">
         <header>
-          <h2>最终字幕</h2>
+          <h2>当前字幕预览</h2>
           <p>仅保存 final 字幕；实时 partial 文本不会写入 Demo 记录。</p>
         </header>
         <div v-if="!detail.messages?.length" class="transcript-empty">
@@ -245,74 +349,49 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.scope-notice {
-  padding: 12px 15px;
-  color: #76520e;
-  background: #fff8e6;
-  border: 1px solid #f3d999;
-  border-radius: 9px;
-}
-
+.scope-notice,
 .state-card,
 .summary-card,
 .recording-card,
+.edit-card,
 .transcript-card {
-  padding: clamp(20px, 4vw, 28px);
-  background: var(--td-bg-color-container, #fff);
-  border: 1px solid var(--td-component-stroke, #e6e8eb);
-  border-radius: 14px;
+  padding: 18px 20px;
+  background: #fff;
+  border: 1px solid #e6ebf1;
+  border-radius: 12px;
 }
 
-.state-card {
-  color: #7a8492;
-  text-align: center;
-}
-
-.state-card.is-error {
+.state-card.is-error,
+.inline-error {
   color: #a63737;
 }
 
-.summary-card > header,
-.recording-card > header,
-.transcript-card > header {
+.summary-card header,
+.recording-card header,
+.edit-card header,
+.transcript-card header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
 .eyebrow {
-  color: #0052d9;
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  color: #687386;
+  font-size: 12px;
 }
 
 h1,
 h2 {
-  margin: 6px 0 0;
-  color: var(--td-text-color-primary, #1d2129);
-}
-
-.status-tag {
-  padding: 6px 10px;
-  color: #176642;
-  font-weight: 700;
-  font-size: 12px;
-  background: #e8f8f0;
-  border-radius: 999px;
+  margin: 4px 0 0;
 }
 
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-  margin: 26px 0 0;
-}
-
-.summary-grid div {
-  min-width: 0;
+  gap: 14px 18px;
+  margin: 0;
 }
 
 .summary-grid .is-wide {
@@ -320,105 +399,109 @@ h2 {
 }
 
 dt {
-  color: #7b8492;
+  color: #687386;
   font-size: 12px;
 }
 
 dd {
-  margin: 6px 0 0;
-  overflow-wrap: anywhere;
-  color: #27364b;
+  margin: 4px 0 0;
+}
+
+.status-tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eef3ff;
+  color: #2f5bda;
+  font-size: 12px;
+}
+
+.recording-state,
+.transcript-empty {
+  color: #687386;
+}
+
+.recording-player {
+  width: 100%;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
   font-weight: 600;
 }
 
-.transcript-card > header p {
-  max-width: 440px;
-  margin: 0;
-  color: #7b8492;
-  font-size: 12px;
-  line-height: 1.6;
-  text-align: right;
+select,
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid #d7dde5;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.primary-button,
+.danger-button {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.primary-button {
+  color: #fff;
+  background: var(--td-brand-color, #0052d9);
+  border: 0;
+}
+
+.danger-button {
+  color: #a63737;
+  background: #fff;
+  border: 1px solid #f0c2c2;
 }
 
 .transcript-list {
   display: grid;
-  gap: 14px;
-  margin-top: 24px;
-}
-
-.message-row {
-  display: flex;
+  gap: 10px;
 }
 
 .message-row.is-user {
-  justify-content: flex-end;
+  justify-items: end;
 }
 
 .message-bubble {
-  max-width: 76%;
-  padding: 11px 14px;
-  background: #f7f9fc;
-  border: 1px solid #e0e5ec;
+  max-width: 85%;
+  padding: 10px 12px;
   border-radius: 12px;
+  background: #f5f7fb;
 }
 
-.is-user .message-bubble {
-  background: #eaf2ff;
-  border-color: #c9dcfa;
+.message-row.is-user .message-bubble {
+  background: #eaf1ff;
 }
 
 .message-bubble span {
-  color: #7b8492;
-  font-size: 11px;
+  display: block;
+  margin-bottom: 4px;
+  color: #687386;
+  font-size: 12px;
 }
 
 .message-bubble p {
-  margin: 5px 0 0;
-  color: #27364b;
-  line-height: 1.6;
+  margin: 0;
   white-space: pre-wrap;
-}
-
-.transcript-empty {
-  padding: 48px 0 20px;
-  color: #7b8492;
-  text-align: center;
-}
-
-.recording-state {
-  margin-top: 18px;
-  color: #7b8492;
-}
-
-.recording-state.is-error {
-  color: #a63737;
-}
-
-.recording-player {
-  display: block;
-  width: 100%;
-  margin-top: 18px;
 }
 
 @media (max-width: 680px) {
   .summary-grid {
     grid-template-columns: 1fr;
-  }
-
-  .summary-grid .is-wide {
-    grid-column: auto;
-  }
-
-  .transcript-card > header {
-    flex-direction: column;
-  }
-
-  .transcript-card > header p {
-    text-align: left;
-  }
-
-  .message-bubble {
-    max-width: 92%;
   }
 }
 </style>

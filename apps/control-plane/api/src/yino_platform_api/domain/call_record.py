@@ -80,6 +80,25 @@ class CallRecordCreate(CallRecordData):
     pass
 
 
+class CallRecordUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: CallRecordStatus
+    messages: list[TranscriptMessage] | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_message_sequences(self) -> CallRecordUpdate:
+        if self.messages is None:
+            return self
+        sequences = [message.sequence for message in self.messages]
+        if any(
+            current <= previous
+            for previous, current in pairwise(sequences)
+        ):
+            raise ValueError("message sequence must be unique and strictly increasing")
+        return self
+
+
 class CallRecord(CallRecordData):
     id: UUID
     tenant_id: UUID
@@ -88,6 +107,7 @@ class CallRecord(CallRecordData):
     recording_mime_type: str | None = None
     recording_size_bytes: int | None = Field(default=None, ge=0)
     recording_failure_code: str | None = None
+    deleted_at: datetime | None = None
 
     @field_validator("created_at")
     @classmethod
@@ -96,6 +116,19 @@ class CallRecord(CallRecordData):
             raise ValueError("created_at must include UTC timezone")
         if value.utcoffset().total_seconds() != 0:
             raise ValueError("created_at must use UTC timezone")
+        return value.astimezone(UTC)
+
+    @field_validator("deleted_at")
+    @classmethod
+    def require_deleted_at_utc(
+        cls, value: datetime | None
+    ) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("deleted_at must include UTC timezone")
+        if value.utcoffset().total_seconds() != 0:
+            raise ValueError("deleted_at must use UTC timezone")
         return value.astimezone(UTC)
 
 

@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""Deploy local YinoVoicePlatform as an isolated /stage1 stack on 8.215.80.82.
+"""Deploy yinovoice apps/ as an isolated /stage1 stack on the server.
 
-- Restores production frontend from the pre-overwrite backup
-- Installs parallel platform-api (:8011) + voice-agent (agent name stage1)
-- Serves frontend at https://HOST/stage1/ (existing 443, no new SG port)
-- Does not modify prod :8000 / yino-customer-service worker
+Source of truth (local monorepo):
+  - apps/control-plane/api
+  - apps/runtime/voice-agent
+  - apps/control-plane/web/dist  (build with VITE_BASE_URL=/stage1/)
+
+Behavior:
+  - Installs parallel platform-api (:8011) + voice-agent (agent name stage1)
+  - Serves frontend at https://HOST/stage1/ (existing 443, no new SG port)
+  - Does NOT modify /opt/yino-vapi production code, frontend, or backups
+  - Does NOT restore or overwrite production frontend
+  - Stage1 uses a separate Postgres database on the shared Docker instance
+    (default name yino_platform_stage1), never the production database name
 """
 from __future__ import annotations
 
@@ -21,15 +29,18 @@ USER = os.environ.get("BT_USER", "root")
 PASSWORD = os.environ.get("BT_PASSWORD", "")
 REMOTE_ROOT = "/opt/yino-vapi-stage1"
 PROD_ROOT = "/opt/yino-vapi"
-PROD_FRONT_BACKUP = f"{PROD_ROOT}/frontend-dist.bak-20260805-163837"
 STAGE_API_PORT = 8011
 STAGE_AGENT_NAME = "yino-customer-service-stage1"
 STAGE_PREFIX = "/stage1"
+STAGE_DATABASE_NAME = os.environ.get("STAGE_DATABASE_NAME", "yino_platform_stage1")
+POSTGRES_CONTAINER = os.environ.get(
+    "YINO_POSTGRES_CONTAINER", "yino-platform-postgres"
+)
 
 LOCAL_ROOT = Path(__file__).resolve().parents[1]
-LOCAL_FRONT_DIST = LOCAL_ROOT / "front" / "dist"
-LOCAL_PLATFORM = LOCAL_ROOT / "platform-api"
-LOCAL_VOICE = LOCAL_ROOT / "voice-agent"
+LOCAL_FRONT_DIST = LOCAL_ROOT / "apps" / "control-plane" / "web" / "dist"
+LOCAL_PLATFORM = LOCAL_ROOT / "apps" / "control-plane" / "api"
+LOCAL_VOICE = LOCAL_ROOT / "apps" / "runtime" / "voice-agent"
 
 REMOTE_NGINX = "/www/server/panel/vhost/nginx/yino-vapi-443.conf"
 REMOTE_NGINX_SNIPPET = (
@@ -179,15 +190,7 @@ location ^~ {STAGE_PREFIX}/ {{
         write_remote(sftp, "/tmp/yino-vapi-stage1.nginx.conf", nginx_snippet)
         sftp.close()
 
-        # Restore production frontend that was overwritten earlier.
-        run(
-            ssh,
-            f"test -d {PROD_FRONT_BACKUP} && "
-            f"rm -rf {PROD_ROOT}/frontend-dist/* && "
-            f"cp -a {PROD_FRONT_BACKUP}/. {PROD_ROOT}/frontend-dist/ && "
-            f"echo PROD_FRONT_RESTORED",
-        )
-
+        # Production tree is read-only for this script (config/venv copy only).
         run(ssh, f"mkdir -p {REMOTE_ROOT}/{{config,systemd,data/recordings,logs}}")
         run(
             ssh,
@@ -211,11 +214,13 @@ location ^~ {STAGE_PREFIX}/ {{
         # uv venv has no pip; run uploaded src via PYTHONPATH in systemd units.
 
         # Env: derive secrets from prod files on the server (values not printed).
+        # DATABASE_URL is rewritten to STAGE_DATABASE_NAME on the same Postgres.
         run(
             ssh,
             f"""
 python3 - <<'PY'
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 def load_env(path):
     data = {{}}
@@ -232,6 +237,14 @@ prod_va = load_env(Path("{PROD_ROOT}/config/voice-agent.env"))
 merged = dict(prod_api)
 merged.update(prod_va)
 
+prod_db = prod_api.get("DATABASE_URL", "").strip()
+if not prod_db:
+    raise SystemExit("production DATABASE_URL missing; cannot derive stage1 DB")
+parsed = urlparse(prod_db)
+if parsed.path.rstrip("/").split("/")[-1] == "{STAGE_DATABASE_NAME}":
+    raise SystemExit("refusing to reuse production database name for stage1")
+stage_db = urlunparse(parsed._replace(path="/{STAGE_DATABASE_NAME}"))
+
 def write_env(path, rows):
     path.write_text("\\n".join(rows) + "\\n", encoding="utf-8")
     path.chmod(0o600)
@@ -246,6 +259,7 @@ write_env(
         "LIVEKIT_AGENT_NAME={STAGE_AGENT_NAME}",
         "CALL_RECORDING_DIR={REMOTE_ROOT}/data/recordings",
         "CALL_RECORDING_MAX_BYTES=104857600",
+        "DATABASE_URL=" + stage_db,
     ],
 )
 write_env(
@@ -267,7 +281,45 @@ write_env(
     ],
 )
 print("ENV_WRITTEN")
+print("STAGE_DB_NAME={STAGE_DATABASE_NAME}")
 PY
+""",
+        )
+
+        # Create isolated DB (same Docker Postgres) and migrate Stage1 schema.
+        run(
+            ssh,
+            f"""
+set -e
+# Resolve DB role from production URL without printing secrets.
+DB_USER=$(python3 - <<'PY'
+from pathlib import Path
+from urllib.parse import urlparse, unquote
+for line in Path("{PROD_ROOT}/config/platform-api.env").read_text().splitlines():
+    if line.startswith("DATABASE_URL="):
+        u = urlparse(line.split("=", 1)[1].strip())
+        print(unquote(u.username or "yino"))
+        break
+PY
+)
+docker exec {POSTGRES_CONTAINER} psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -Atc \
+  "SELECT 1 FROM pg_database WHERE datname='{STAGE_DATABASE_NAME}'" | grep -q 1 \
+  || docker exec {POSTGRES_CONTAINER} psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c \
+  "CREATE DATABASE {STAGE_DATABASE_NAME} OWNER \\"$DB_USER\\";"
+echo STAGE_DB_READY
+cd {REMOTE_ROOT}/platform-api
+set -a
+. {REMOTE_ROOT}/config/platform-api.env
+set +a
+if [ -x .venv/bin/alembic ]; then
+  .venv/bin/alembic upgrade head
+elif [ -x .venv/bin/python ]; then
+  .venv/bin/python -m alembic upgrade head
+else
+  echo "alembic missing in stage1 venv" >&2
+  exit 1
+fi
+echo STAGE_MIGRATIONS_OK
 """,
         )
 
@@ -283,55 +335,51 @@ PY
             "/tmp/yino-voice-agent-stage1.service",
         )
 
-        # Ensure nginx 443 includes stage1 locations before location /.
+        # Ensure nginx 443 includes exactly one stage1 block before location /.
         run(
             ssh,
             f"""
 set -e
-CONF={REMOTE_NGINX}
-SNIP=/tmp/yino-vapi-stage1.nginx.conf
-MARKER='# Yino stage1 isolated stack'
-if grep -q "$MARKER" "$CONF"; then
-  python3 - <<'PY'
+python3 - <<'PY'
 from pathlib import Path
 conf = Path("{REMOTE_NGINX}")
 text = conf.read_text(encoding="utf-8")
-start = text.find("# Yino stage1 isolated stack")
-if start >= 0:
-    # remove previous block until blank line before next location or end marker
-    end = text.find("\\n    location ", start + 1)
-    if end < 0:
-        end = text.find("\\n    access_log", start)
-    snippet = Path("/tmp/yino-vapi-stage1.nginx.conf").read_text(encoding="utf-8").rstrip() + "\\n\\n"
-    # indent snippet like surrounding locations
-    indented = "\\n".join(("    " + line if line.strip() else line) for line in snippet.splitlines()) + "\\n\\n"
-    if end > start:
-        text = text[:start] + indented + text[end+1:]
-    else:
-        text = text[:start] + indented
-    conf.write_text(text, encoding="utf-8")
-print("NGINX_STAGE1_REPLACED")
-PY
-else
-  python3 - <<'PY'
-from pathlib import Path
-conf = Path("{REMOTE_NGINX}")
-text = conf.read_text(encoding="utf-8")
+marker = "# Yino stage1 isolated stack"
+while True:
+    start = text.find(marker)
+    if start < 0:
+        break
+    line_start = text.rfind("\\n", 0, start) + 1
+    i = start
+    while True:
+        next_loc = text.find("\\n    location ", i + 1)
+        next_access = text.find("\\n    access_log", i + 1)
+        candidates = [x for x in (next_loc, next_access) if x >= 0]
+        if not candidates:
+            end = len(text)
+            break
+        end = min(candidates)
+        window = text[end:end + 120]
+        if "/stage1" in window or "Yino stage1" in window:
+            i = end
+            continue
+        break
+    text = text[:line_start] + text[end + 1:]
+
 snippet = Path("/tmp/yino-vapi-stage1.nginx.conf").read_text(encoding="utf-8").rstrip() + "\\n\\n"
 indented = "\\n".join(("    " + line if line.strip() else line) for line in snippet.splitlines()) + "\\n\\n"
 needle = "    # 前端静态"
 idx = text.find(needle)
 if idx < 0:
-    needle = "    location / {{"
-    idx = text.find(needle)
+    idx = text.find("    location / {{")
 if idx < 0:
     raise SystemExit("cannot find insertion point in nginx conf")
 text = text[:idx] + indented + text[idx:]
 conf.write_text(text, encoding="utf-8")
-print("NGINX_STAGE1_INSERTED")
+print("NGINX_STAGE1_UPSERTED")
+print("markers", text.count(marker))
 PY
-fi
-rm -f "$SNIP"
+rm -f /tmp/yino-vapi-stage1.nginx.conf
 """,
         )
 
@@ -382,7 +430,15 @@ rm -f "$SNIP"
         )
         run(
             ssh,
-            "curl -sk -o /dev/null -w 'stage_api:%{http_code}\\n' "
+            "curl -sk -o /dev/null -w 'stage_list:%{http_code}\\n' "
+            f"-H 'Host: {HOST}' "
+            "-H 'X-Tenant-ID: 00000000-0000-0000-0000-000000000001' "
+            f"https://127.0.0.1{STAGE_PREFIX}/api/v1/customer-services",
+            check=False,
+        )
+        run(
+            ssh,
+            "curl -sk -o /dev/null -w 'stage_api_get:%{http_code}\\n' "
             f"-H 'Host: {HOST}' "
             "-H 'X-Tenant-ID: 00000000-0000-0000-0000-000000000001' "
             f"https://127.0.0.1{STAGE_PREFIX}/api/v1/customer-services/"
@@ -391,10 +447,34 @@ rm -f "$SNIP"
         )
         run(
             ssh,
-            "curl -s -o /dev/null -w 'prod_api:%{http_code}\\n' "
+            "curl -s -o /dev/null -w 'prod_list:%{http_code}\\n' "
+            "-H 'X-Tenant-ID: 00000000-0000-0000-0000-000000000001' "
+            "http://127.0.0.1:8000/api/v1/customer-services",
+            check=False,
+        )
+        run(
+            ssh,
+            "curl -s -o /dev/null -w 'prod_post:%{http_code}\\n' "
+            "-H 'X-Tenant-ID: 00000000-0000-0000-0000-000000000001' "
+            "-H 'Content-Type: application/json' "
+            "-d '{}' "
+            "http://127.0.0.1:8000/api/v1/customer-services",
+            check=False,
+        )
+        run(
+            ssh,
+            "curl -s -o /dev/null -w 'prod_api_get:%{http_code}\\n' "
             "-H 'X-Tenant-ID: 00000000-0000-0000-0000-000000000001' "
             "http://127.0.0.1:8000/api/v1/customer-services/"
             "00000000-0000-0000-0000-000000000101",
+            check=False,
+        )
+        run(
+            ssh,
+            "test -d "
+            f"{PROD_ROOT}/platform-api/src/yino_platform_api.bak-20260813-113313 "
+            f"&& test -d {PROD_ROOT}/frontend-dist.bak-20260813-113342 "
+            "&& echo PROD_ROLLBACK_BACKUPS_PRESENT",
             check=False,
         )
     finally:
@@ -402,8 +482,9 @@ rm -f "$SNIP"
         ssh.close()
 
     print(f"\nPROD (unchanged API :8000): https://{HOST}/#/login")
-    print(f"STAGE1 (local worktree): https://{HOST}{STAGE_PREFIX}/#/login")
+    print(f"STAGE1 (yinovoice apps): https://{HOST}{STAGE_PREFIX}/#/login")
     print("STAGE1 demo: demo / demo123")
+    print(f"STAGE1 assistants: https://{HOST}{STAGE_PREFIX}/#/user/assistant-settings")
     print(f"STAGE1 knowledge: https://{HOST}{STAGE_PREFIX}/#/user/knowledge-base/index")
 
 

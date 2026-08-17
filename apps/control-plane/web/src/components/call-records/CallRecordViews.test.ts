@@ -5,6 +5,9 @@ const routerPush = vi.hoisted(() => vi.fn());
 const serviceState = vi.hoisted(() => ({
   getList: vi.fn(),
   getDetail: vi.fn(),
+  update: vi.fn(),
+  remove: vi.fn(),
+  restore: vi.fn(),
 }));
 const recordingState = vi.hoisted(() => ({
   fetchBlob: vi.fn(),
@@ -32,6 +35,18 @@ vi.mock('@/api/platform', () => {
     getDetail(...args: unknown[]) {
       return serviceState.getDetail(...args);
     }
+
+    update(...args: unknown[]) {
+      return serviceState.update(...args);
+    }
+
+    remove(...args: unknown[]) {
+      return serviceState.remove(...args);
+    }
+
+    restore(...args: unknown[]) {
+      return serviceState.restore(...args);
+    }
   }
   return {
     TenantCallRecordService: CallRecordService,
@@ -50,6 +65,8 @@ const listRecord = {
   status: 'completed',
   startedAt: '2026-08-03T01:00:00Z',
   durationSec: 12,
+  deleted: false,
+  deletedAt: null as string | null,
 };
 
 const detailRecord = {
@@ -89,6 +106,10 @@ describe('call record list view', () => {
       ready: true,
     });
     serviceState.getDetail.mockReset().mockResolvedValue(detailRecord);
+    serviceState.update.mockReset().mockResolvedValue(detailRecord);
+    serviceState.remove.mockReset().mockResolvedValue(undefined);
+    serviceState.restore.mockReset().mockResolvedValue(detailRecord);
+    vi.stubGlobal('confirm', vi.fn(() => true));
   });
 
   it('shows tenant web Demo records without fabricated telephony fields', async () => {
@@ -98,10 +119,57 @@ describe('call record list view', () => {
     expect(wrapper.text()).toContain('网页语音 Demo 记录');
     expect(wrapper.text()).toContain('演示 AI 语音客服');
     expect(wrapper.text()).toContain('网页语音');
+    expect(wrapper.text()).toContain('删除');
+    expect(wrapper.text()).toContain('显示已删除');
     expect(wrapper.text()).toContain('已完成');
     expect(wrapper.text()).not.toContain('客户号码');
     expect(wrapper.text()).not.toContain('接通率');
     expect(wrapper.text()).not.toContain('同步');
+  });
+
+  it('loads deleted records and restores them from the list', async () => {
+    const deletedRecord = {
+      ...listRecord,
+      aacId: 'record-deleted',
+      callId: 'record-deleted',
+      deleted: true,
+      deletedAt: '2026-08-13T08:00:00Z',
+      assistantName: '已删实例',
+    };
+    serviceState.getList
+      .mockResolvedValueOnce({
+        records: [listRecord],
+        list: [listRecord],
+        total: 1,
+        ready: true,
+      })
+      .mockResolvedValueOnce({
+        records: [deletedRecord],
+        list: [deletedRecord],
+        total: 1,
+        ready: true,
+      })
+      .mockResolvedValueOnce({
+        records: [{ ...deletedRecord, deleted: false, deletedAt: null }],
+        list: [{ ...deletedRecord, deleted: false, deletedAt: null }],
+        total: 1,
+        ready: true,
+      });
+
+    const wrapper = mount(CallRecordListView, { props: { scope: 'tenant' } });
+    await flushPromises();
+    await wrapper.get('[data-testid="show-deleted"]').setValue(true);
+    await flushPromises();
+
+    expect(serviceState.getList).toHaveBeenLastCalledWith(expect.objectContaining({
+      includeDeleted: true,
+    }));
+    expect(wrapper.text()).toContain('已删除');
+    expect(wrapper.text()).toContain('恢复');
+
+    await wrapper.get('[data-testid="restore-button"]').trigger('click');
+    await flushPromises();
+    expect(serviceState.restore).toHaveBeenCalledWith('record-deleted');
   });
 
   it('labels operator records as configured demo-tenant scope', async () => {
@@ -147,6 +215,10 @@ describe('call record detail view', () => {
   beforeEach(() => {
     routerPush.mockReset();
     serviceState.getDetail.mockReset().mockResolvedValue(detailRecord);
+    serviceState.update.mockReset().mockResolvedValue(detailRecord);
+    serviceState.remove.mockReset().mockResolvedValue(undefined);
+    serviceState.restore.mockReset().mockResolvedValue(detailRecord);
+    vi.stubGlobal('confirm', vi.fn(() => true));
     recordingState.fetchBlob.mockReset().mockResolvedValue(new Blob(['audio'], { type: 'audio/webm' }));
     objectUrlState.create.mockReset().mockReturnValue('blob:mock-recording-url');
     objectUrlState.revoke.mockReset();

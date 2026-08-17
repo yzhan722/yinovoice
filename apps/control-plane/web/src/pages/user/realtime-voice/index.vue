@@ -1,6 +1,40 @@
 <script setup lang="ts">
-import { DEMO_CUSTOMER_SERVICE_ID } from '@/api/platform/RealtimeVoiceService';
+import { onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
+import { RealtimeVoiceService } from '@/api/platform/RealtimeVoiceService';
+import {
+  loadStoredInstanceId,
+  resolveInstanceSelection,
+  storeInstanceId,
+} from '@/api/platform/instanceSelection';
 import LiveKitRealtimePanel from '@/components/realtime-voice/LiveKitRealtimePanel.vue';
+
+const route = useRoute();
+const service = new RealtimeVoiceService();
+const customerServiceId = ref<string | null>(null);
+const loading = ref(true);
+const loadFailed = ref(false);
+
+async function loadInstances() {
+  loading.value = true;
+  loadFailed.value = false;
+  try {
+    const page = await service.listCustomerServices({ limit: 100, offset: 0 });
+    customerServiceId.value = resolveInstanceSelection({
+      availableIds: page.items.map((item) => item.id),
+      routeId: typeof route.query.instanceId === 'string' ? route.query.instanceId : null,
+      storedId: loadStoredInstanceId(),
+    });
+    storeInstanceId(customerServiceId.value);
+  } catch {
+    customerServiceId.value = null;
+    loadFailed.value = true;
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(loadInstances);
 </script>
 
 <template>
@@ -17,7 +51,10 @@ import LiveKitRealtimePanel from '@/components/realtime-voice/LiveKitRealtimePan
       本地网页实时语音 Demo；电话、预约、知识库尚未接通。
     </div>
 
-    <LiveKitRealtimePanel :customer-service-id="DEMO_CUSTOMER_SERVICE_ID" />
+    <div v-if="loading" class="demo-boundary">正在加载语音实例…</div>
+    <div v-else-if="loadFailed" class="demo-boundary">实例加载失败，请稍后重试。</div>
+    <div v-else-if="!customerServiceId" class="demo-boundary">当前租户暂无可用语音实例。</div>
+    <LiveKitRealtimePanel v-else :customer-service-id="customerServiceId" />
   </main>
 </template>
 

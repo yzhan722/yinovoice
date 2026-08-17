@@ -238,3 +238,106 @@ def test_list_rejects_unbounded_pagination(
     )
 
     assert response.status_code == expected_status
+
+
+def test_update_soft_delete_and_restore_call_record(api: CallRecordApi) -> None:
+    created = api.client.post(
+        "/api/v1/call-records",
+        headers=headers(api.tenant_id),
+        json=payload(api),
+    ).json()
+    record_id = created["id"]
+
+    updated = api.client.put(
+        f"/api/v1/call-records/{record_id}",
+        headers=headers(api.tenant_id),
+        json={
+            "status": "interrupted",
+            "messages": [
+                {"role": "assistant", "text": "更新后的开场", "sequence": 0},
+                {"role": "user", "text": "更新后的用户话", "sequence": 1},
+            ],
+        },
+    )
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["status"] == "interrupted"
+    assert body["messages"][0]["text"] == "更新后的开场"
+    assert body["deleted_at"] is None
+
+    deleted = api.client.delete(
+        f"/api/v1/call-records/{record_id}",
+        headers=headers(api.tenant_id),
+    )
+    assert deleted.status_code == 204
+
+    listed = api.client.get(
+        "/api/v1/call-records",
+        headers=headers(api.tenant_id),
+    )
+    assert listed.status_code == 200
+    assert listed.json() == {"items": [], "total": 0}
+
+    detail = api.client.get(
+        f"/api/v1/call-records/{record_id}",
+        headers=headers(api.tenant_id),
+    )
+    assert detail.status_code == 404
+
+    listed_deleted = api.client.get(
+        "/api/v1/call-records?include_deleted=true",
+        headers=headers(api.tenant_id),
+    )
+    assert listed_deleted.status_code == 200
+    assert listed_deleted.json()["total"] == 1
+    assert listed_deleted.json()["items"][0]["deleted_at"] is not None
+
+    restored = api.client.post(
+        f"/api/v1/call-records/{record_id}/restore",
+        headers=headers(api.tenant_id),
+    )
+    assert restored.status_code == 200
+    assert restored.json()["deleted_at"] is None
+
+    listed_again = api.client.get(
+        "/api/v1/call-records",
+        headers=headers(api.tenant_id),
+    )
+    assert listed_again.status_code == 200
+    assert listed_again.json()["total"] == 1
+
+    # Idempotent delete
+    assert (
+        api.client.delete(
+            f"/api/v1/call-records/{record_id}",
+            headers=headers(api.tenant_id),
+        ).status_code
+        == 204
+    )
+    assert (
+        api.client.delete(
+            f"/api/v1/call-records/{record_id}",
+            headers=headers(api.tenant_id),
+        ).status_code
+        == 204
+    )
+
+
+def test_update_rejected_for_soft_deleted_record(api: CallRecordApi) -> None:
+    created = api.client.post(
+        "/api/v1/call-records",
+        headers=headers(api.tenant_id),
+        json=payload(api),
+    ).json()
+    record_id = created["id"]
+    api.client.delete(
+        f"/api/v1/call-records/{record_id}",
+        headers=headers(api.tenant_id),
+    )
+
+    response = api.client.put(
+        f"/api/v1/call-records/{record_id}",
+        headers=headers(api.tenant_id),
+        json={"status": "failed"},
+    )
+    assert response.status_code == 404

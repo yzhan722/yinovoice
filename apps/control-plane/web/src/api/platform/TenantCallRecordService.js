@@ -27,11 +27,24 @@ export class TenantCallRecordService {
     return this.voiceService.listNormalizedCallRecords({
       limit: pageSize,
       offset: Math.max(0, page - 1) * pageSize,
+      includeDeleted: Boolean(param.includeDeleted),
     });
   }
 
   getDetail(recordId) {
     return this.voiceService.getNormalizedCallRecord(String(recordId));
+  }
+
+  update(recordId, update) {
+    return this.voiceService.updateCallRecord(String(recordId), update);
+  }
+
+  remove(recordId) {
+    return this.voiceService.deleteCallRecord(String(recordId));
+  }
+
+  restore(recordId) {
+    return this.voiceService.restoreCallRecord(String(recordId));
   }
 
   getStats() {

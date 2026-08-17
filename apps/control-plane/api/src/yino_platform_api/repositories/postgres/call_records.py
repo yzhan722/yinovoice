@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
@@ -37,6 +38,7 @@ def _to_domain(row: CallRecordRow) -> CallRecord:
         recording_mime_type=row.recording_mime_type,
         recording_size_bytes=row.recording_size_bytes,
         recording_failure_code=row.recording_failure_code,
+        deleted_at=row.deleted_at,
     )
 
 
@@ -70,6 +72,7 @@ class PostgresCallRecordRepository:
                     recording_mime_type=record.recording_mime_type,
                     recording_size_bytes=record.recording_size_bytes,
                     recording_failure_code=record.recording_failure_code,
+                    deleted_at=record.deleted_at,
                 )
                 session.add(row)
             else:
@@ -84,6 +87,7 @@ class PostgresCallRecordRepository:
                 row.recording_mime_type = record.recording_mime_type
                 row.recording_size_bytes = record.recording_size_bytes
                 row.recording_failure_code = record.recording_failure_code
+                row.deleted_at = record.deleted_at
 
             await session.execute(
                 delete(CallMessageRow).where(
@@ -121,17 +125,22 @@ class PostgresCallRecordRepository:
         *,
         limit: int,
         offset: int,
+        include_deleted: bool = False,
     ) -> tuple[list[CallRecord], int]:
+        filters = [CallRecordRow.tenant_id == tenant_id]
+        if not include_deleted:
+            filters.append(CallRecordRow.deleted_at.is_(None))
+
         async with self._sessions() as session:
             total = await session.scalar(
                 select(func.count())
                 .select_from(CallRecordRow)
-                .where(CallRecordRow.tenant_id == tenant_id)
+                .where(*filters)
             )
             rows = (
                 await session.scalars(
                     select(CallRecordRow)
-                    .where(CallRecordRow.tenant_id == tenant_id)
+                    .where(*filters)
                     .options(selectinload(CallRecordRow.messages))
                     .order_by(
                         CallRecordRow.created_at.desc(),
@@ -157,4 +166,44 @@ class PostgresCallRecordRepository:
             )
             if row is None:
                 return None
+            return _to_domain(row)
+
+    async def soft_delete(
+        self, record_id: UUID, tenant_id: UUID
+    ) -> CallRecord | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(CallRecordRow)
+                .where(
+                    CallRecordRow.tenant_id == tenant_id,
+                    CallRecordRow.id == record_id,
+                )
+                .options(selectinload(CallRecordRow.messages))
+            )
+            if row is None:
+                return None
+            if row.deleted_at is None:
+                row.deleted_at = datetime.now(UTC)
+                await session.commit()
+                await session.refresh(row, attribute_names=["messages"])
+            return _to_domain(row)
+
+    async def restore(
+        self, record_id: UUID, tenant_id: UUID
+    ) -> CallRecord | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(CallRecordRow)
+                .where(
+                    CallRecordRow.tenant_id == tenant_id,
+                    CallRecordRow.id == record_id,
+                )
+                .options(selectinload(CallRecordRow.messages))
+            )
+            if row is None:
+                return None
+            if row.deleted_at is not None:
+                row.deleted_at = None
+                await session.commit()
+                await session.refresh(row, attribute_names=["messages"])
             return _to_domain(row)

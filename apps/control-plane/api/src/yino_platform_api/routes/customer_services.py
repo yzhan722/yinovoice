@@ -1,14 +1,16 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ..dependencies import TenantId
 from ..domain.customer_service import (
+    CustomerServiceCreate,
     CustomerServiceInstance,
     CustomerServiceUpdate,
 )
 from ..repositories.customer_services import (
+    CustomerServiceAlreadyExists,
     CustomerServiceRepository,
     CustomerServiceVersionConflict,
 )
@@ -26,11 +28,56 @@ class LiveKitTokenResponse(BaseModel):
     token: str
 
 
+class CustomerServicePage(BaseModel):
+    items: list[CustomerServiceInstance]
+    total: int
+
+
 def create_router(
     repository: CustomerServiceRepository,
     token_issuer: LiveKitTokenIssuer,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/customer-services")
+
+    @router.get("", response_model=CustomerServicePage)
+    async def list_customer_services(
+        tenant_id: TenantId,
+        limit: int = Query(default=20, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+    ) -> CustomerServicePage:
+        items, total = await repository.list_for_tenant(
+            tenant_id, limit=limit, offset=offset
+        )
+        return CustomerServicePage(items=items, total=total)
+
+    @router.post(
+        "",
+        response_model=CustomerServiceInstance,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_customer_service(
+        request: CustomerServiceCreate,
+        tenant_id: TenantId,
+    ) -> CustomerServiceInstance:
+        instance = CustomerServiceInstance(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            version=1,
+            display_name=request.display_name,
+            organization_name=request.organization_name,
+            greeting=request.greeting,
+            platform_prompt=request.platform_prompt,
+            tenant_prompt=request.tenant_prompt,
+            voice=request.voice,
+            response=request.response,
+        )
+        try:
+            return await repository.create(instance)
+        except CustomerServiceAlreadyExists as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Customer service already exists",
+            ) from error
 
     @router.get("/{instance_id}", response_model=CustomerServiceInstance)
     async def get_customer_service(
