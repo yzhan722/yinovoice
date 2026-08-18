@@ -3,9 +3,24 @@
     <div class="page-head">
       <div>
         <h1 class="demo-page-title">预约结果</h1>
-        <p class="demo-page-sub">规划中 · 演示框架；尚未接通实时语音或电话流程。</p>
+        <p class="demo-page-sub">租户真实预约队列 · 本阶段不发起外呼</p>
       </div>
+      <button type="button" class="primary" data-testid="new-appointment" @click="showForm = !showForm">
+        {{ showForm ? '收起' : '新建预约' }}
+      </button>
     </div>
+
+    <form v-if="showForm" class="create-form demo-card" @submit.prevent="createAppointment">
+      <label>姓名<input v-model="form.patientName" required data-testid="apt-name" /></label>
+      <label>电话<input v-model="form.phone" required data-testid="apt-phone" /></label>
+      <label>项目<input v-model="form.service" required data-testid="apt-service" /></label>
+      <label>开始<input v-model="form.slotStart" type="datetime-local" required data-testid="apt-start" /></label>
+      <label>结束<input v-model="form.slotEnd" type="datetime-local" required data-testid="apt-end" /></label>
+      <button type="submit" class="primary" :disabled="saving" data-testid="apt-submit">
+        {{ saving ? '保存中…' : '创建' }}
+      </button>
+      <p v-if="formError" class="error" role="alert">{{ formError }}</p>
+    </form>
 
     <div class="month demo-card">
       <div class="month-head">
@@ -28,32 +43,72 @@
 
     <h2 class="section">Upcoming</h2>
     <div class="cards">
-      <article v-for="row in list" :key="row.id" class="demo-list-card">
+      <article v-for="row in list" :key="row.id" class="demo-list-card" data-testid="appointment-row">
         <div>
           <div class="top">
             <span class="demo-prio" :class="row.status === 'pending' ? 'high' : row.status === 'confirmed' ? 'low' : 'medium'">
               {{ statusLabel(row.status) }}
             </span>
+            <span v-if="row.source === 'voice_tool'" class="source-tag" data-testid="voice-auto-tag">语音自动</span>
           </div>
           <h3>{{ row.patientName }} · {{ row.service }}</h3>
           <p>{{ formatRange(row.slotStart, row.slotEnd) }}</p>
           <div class="meta">{{ row.phone }}</div>
+          <p v-if="row.notes" class="notes" data-testid="appointment-notes">{{ row.notes }}</p>
+          <RouterLink
+            v-if="row.callRecordId"
+            class="call-link"
+            data-testid="appointment-call-link"
+            :to="`/user/call-history/detail/${row.callRecordId}`"
+          >
+            查看通话
+          </RouterLink>
+        </div>
+        <div class="row-actions">
+          <button
+            v-if="row.status === 'pending'"
+            type="button"
+            data-testid="confirm-appointment"
+            @click="setStatus(row, 'confirmed')"
+          >
+            确认
+          </button>
+          <button
+            v-if="row.status !== 'cancelled'"
+            type="button"
+            data-testid="cancel-appointment"
+            @click="cancelAppointment(row)"
+          >
+            取消
+          </button>
         </div>
       </article>
-      <div v-if="!loading && !list.length" class="empty">暂无预约</div>
+      <div v-if="loading" class="empty">加载中…</div>
+      <div v-else-if="!list.length" class="empty">暂无预约</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { RouterLink } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { TenantAppointmentService } from '@/api/platform';
 
 const svc = new TenantAppointmentService();
 const loading = ref(false);
+const saving = ref(false);
+const showForm = ref(false);
+const formError = ref('');
 const list = ref<any[]>([]);
 const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+const form = ref({
+  patientName: '',
+  phone: '',
+  service: '',
+  slotStart: '',
+  slotEnd: '',
+});
 
 const monthLabel = computed(() => {
   const d = new Date();
@@ -106,6 +161,11 @@ function formatRange(start: string, end: string) {
   }
 }
 
+function toIsoLocal(value: string) {
+  const date = new Date(value);
+  return date.toISOString();
+}
+
 async function load() {
   loading.value = true;
   try {
@@ -119,11 +179,102 @@ async function load() {
   }
 }
 
+async function createAppointment() {
+  saving.value = true;
+  formError.value = '';
+  try {
+    const slotStart = toIsoLocal(form.value.slotStart);
+    const slotEnd = toIsoLocal(form.value.slotEnd);
+    if (new Date(slotEnd).getTime() < new Date(slotStart).getTime()) {
+      formError.value = '日期不可使用：结束时间不能早于开始时间';
+      return;
+    }
+    if (Number.isNaN(new Date(slotStart).getTime()) || Number.isNaN(new Date(slotEnd).getTime())) {
+      formError.value = '日期不可使用：请选择有效的开始与结束时间';
+      return;
+    }
+    await svc.create({
+      patientName: form.value.patientName,
+      phone: form.value.phone,
+      service: form.value.service,
+      slotStart,
+      slotEnd,
+    });
+    showForm.value = false;
+    form.value = { patientName: '', phone: '', service: '', slotStart: '', slotEnd: '' };
+    await load();
+  } catch (e: any) {
+    const msg = String(e?.message || '');
+    if (msg.includes('slot_end') || msg.includes('422') || msg.includes('日期')) {
+      formError.value = '日期不可使用';
+    } else {
+      formError.value = msg || '创建失败';
+    }
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function setStatus(row: any, status: string) {
+  try {
+    await svc.update(row.id, { status });
+    await load();
+  } catch (e: any) {
+    MessagePlugin.error(e?.message || '更新失败');
+  }
+}
+
+async function cancelAppointment(row: any) {
+  if (!window.confirm('确认取消该预约？')) return;
+  try {
+    await svc.cancel(row.id);
+    await load();
+  } catch (e: any) {
+    MessagePlugin.error(e?.message || '取消失败');
+  }
+}
+
 onMounted(load);
 </script>
 
 <style scoped lang="less">
-.page-head { margin-bottom: 14px; }
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.primary {
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 14px;
+  background: var(--demo-primary);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.create-form {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  margin-bottom: 14px;
+  label {
+    display: grid;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--demo-muted);
+  }
+  input {
+    padding: 8px 10px;
+    border: 1px solid var(--demo-line);
+    border-radius: 6px;
+  }
+}
+
+.error { color: #c62828; margin: 0; font-size: 13px; }
 
 .month {
   padding: 16px;
@@ -179,6 +330,61 @@ onMounted(load);
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.demo-list-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.source-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0b5fff;
+  background: #e8f0ff;
+}
+
+.notes {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--demo-ink);
+  white-space: pre-wrap;
+}
+
+.call-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--demo-primary);
+  text-decoration: none;
+}
+
+.row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  button {
+    border: 1px solid var(--demo-line);
+    background: #fff;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
 }
 
 h3 {

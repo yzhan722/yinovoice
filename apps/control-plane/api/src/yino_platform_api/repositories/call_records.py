@@ -29,6 +29,12 @@ class CallRecordRepository(Protocol):
         self, record_id: UUID, tenant_id: UUID
     ) -> CallRecord | None: ...
 
+    async def exists_for_customer_service(
+        self,
+        tenant_id: UUID,
+        customer_service_id: UUID,
+    ) -> bool: ...
+
 
 class InMemoryCallRecordRepository:
     def __init__(self) -> None:
@@ -88,3 +94,14 @@ class InMemoryCallRecordRepository:
             record = record.model_copy(update={"deleted_at": None}, deep=True)
             self._records[(tenant_id, record_id)] = record
         return record.model_copy(deep=True)
+
+    async def exists_for_customer_service(
+        self,
+        tenant_id: UUID,
+        customer_service_id: UUID,
+    ) -> bool:
+        return any(
+            record.tenant_id == tenant_id
+            and record.customer_service_id == customer_service_id
+            for record in self._records.values()
+        )

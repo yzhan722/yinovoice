@@ -207,3 +207,19 @@ class PostgresCallRecordRepository:
                 await session.commit()
                 await session.refresh(row, attribute_names=["messages"])
             return _to_domain(row)
+
+    async def exists_for_customer_service(
+        self,
+        tenant_id: UUID,
+        customer_service_id: UUID,
+    ) -> bool:
+        async with self._sessions() as session:
+            found = await session.scalar(
+                select(CallRecordRow.id)
+                .where(
+                    CallRecordRow.tenant_id == tenant_id,
+                    CallRecordRow.voice_agent_instance_id == customer_service_id,
+                )
+                .limit(1)
+            )
+            return found is not None

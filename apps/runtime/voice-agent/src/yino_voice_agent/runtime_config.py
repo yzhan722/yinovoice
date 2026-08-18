@@ -208,7 +208,13 @@ class RuntimeCustomerService:
                 "primary_language",
             },
             "Customer service snapshot",
+            optional_keys={"deleted_at"},
         )
+        # Platform A3 soft-delete: active snapshots omit the field or send null.
+        if data.get("deleted_at") is not None:
+            raise RuntimeConfigurationError(
+                "Customer service snapshot is soft-deleted"
+            )
         return cls(
             id=_uuid(data["id"], "snapshot customer service ID"),
             tenant_id=_uuid(data["tenant_id"], "snapshot tenant ID"),
@@ -280,8 +286,16 @@ def _mapping_with_exact_keys(
     value: object,
     expected_keys: set[str],
     name: str,
+    *,
+    optional_keys: set[str] | None = None,
 ) -> Mapping[str, object]:
-    if not isinstance(value, dict) or set(value) != expected_keys:
+    if not isinstance(value, dict):
+        raise RuntimeConfigurationError(
+            f"{name} must contain exactly the expected keys"
+        )
+    allowed = expected_keys | (optional_keys or set())
+    actual = set(value)
+    if not expected_keys.issubset(actual) or not actual.issubset(allowed):
         raise RuntimeConfigurationError(
             f"{name} must contain exactly the expected keys"
         )

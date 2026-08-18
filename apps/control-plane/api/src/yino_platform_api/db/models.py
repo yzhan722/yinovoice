@@ -130,6 +130,9 @@ class VoiceAgentInstance(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     tenant: Mapped[Tenant] = relationship(back_populates="instances")
     template_version: Mapped[AgentTemplateVersion] = relationship(
@@ -255,3 +258,110 @@ class CallMessageRow(Base):
     )
 
     call_record: Mapped[CallRecordRow] = relationship(back_populates="messages")
+
+
+class AppointmentRow(Base):
+    __tablename__ = "appointments"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="appointments_tenant_id_uidx"),
+        CheckConstraint(
+            "status IN ('pending', 'confirmed', 'cancelled')",
+            name="appointments_status_check",
+        ),
+        CheckConstraint(
+            "source IN ('manual', 'voice_tool', 'import')",
+            name="appointments_source_check",
+        ),
+        CheckConstraint(
+            "slot_end >= slot_start",
+            name="appointments_slot_order_check",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "voice_agent_instance_id"],
+            ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
+            name="appointments_instance_fkey",
+        ),
+        Index("appointments_tenant_slot_idx", "tenant_id", "slot_start"),
+        Index("appointments_tenant_status_idx", "tenant_id", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    voice_agent_instance_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), nullable=True
+    )
+    call_record_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), nullable=True
+    )
+    patient_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    phone: Mapped[str] = mapped_column(String(32), nullable=False)
+    service: Mapped[str] = mapped_column(String(120), nullable=False)
+    slot_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    slot_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'manual'")
+    )
+    notes: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("''")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CallbackTaskRow(Base):
+    __tablename__ = "callback_tasks"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="callback_tasks_tenant_id_uidx"),
+        CheckConstraint(
+            "status IN ('open', 'done', 'cancelled')",
+            name="callback_tasks_status_check",
+        ),
+        CheckConstraint(
+            "source IN ('manual', 'voice_tool', 'from_call')",
+            name="callback_tasks_source_check",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "voice_agent_instance_id"],
+            ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
+            name="callback_tasks_instance_fkey",
+        ),
+        Index(
+            "callback_tasks_tenant_status_created_idx",
+            "tenant_id",
+            "status",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    voice_agent_instance_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), nullable=True
+    )
+    call_record_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), nullable=True
+    )
+    caller_phone: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(String(200), nullable=False)
+    summary: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("''")
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'manual'")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

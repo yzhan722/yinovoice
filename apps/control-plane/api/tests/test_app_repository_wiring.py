@@ -15,7 +15,9 @@ from yino_platform_api.domain.customer_service import (
     DEMO_CUSTOMER_SERVICE_ID,
     DEMO_TENANT_ID,
 )
+from yino_platform_api.repositories.appointments import InMemoryAppointmentRepository
 from yino_platform_api.repositories.call_records import InMemoryCallRecordRepository
+from yino_platform_api.repositories.callback_tasks import InMemoryCallbackTaskRepository
 from yino_platform_api.repositories.customer_services import (
     InMemoryCustomerServiceRepository,
 )
@@ -68,5 +70,7 @@ def test_explicit_repositories_keep_memory_even_with_database_url(
     app = create_app(
         InMemoryCustomerServiceRepository(),
         call_record_repository=InMemoryCallRecordRepository(),
+        appointment_repository=InMemoryAppointmentRepository(),
+        callback_task_repository=InMemoryCallbackTaskRepository(),
     )
     assert app.state.persistence == "memory"

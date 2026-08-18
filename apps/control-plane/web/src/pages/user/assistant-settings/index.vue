@@ -10,37 +10,82 @@
       </button>
     </div>
 
+    <label class="show-deleted">
+      <input v-model="showDeleted" type="checkbox" data-testid="show-deleted" />
+      显示已删除
+    </label>
+    <p v-if="actionError" role="alert" class="action-error">{{ actionError }}</p>
+
     <div v-if="loading" class="state">加载中…</div>
     <div v-else-if="loadFailed" role="alert" class="state error-state">
       实例加载失败，请稍后重试。
     </div>
     <div v-else-if="list.length === 0" class="state">暂无实例</div>
     <div v-else class="list">
-      <button
+      <div
         v-for="item in list"
         :key="item.id"
-        type="button"
         class="row"
-        @click="goDetail(item.id)"
+        :class="{ 'is-deleted': !!item.deleted_at }"
+        data-testid="instance-row"
       >
-        <div class="row-main">
+        <button
+          type="button"
+          class="row-main"
+          :disabled="!!item.deleted_at || busyId === item.id"
+          @click="goDetail(item.id)"
+        >
           <div class="name-row">
             <span class="name">{{ item.display_name || '未命名实例' }}</span>
-            <t-tag theme="success" variant="light" size="small">演示就绪</t-tag>
+            <span v-if="item.deleted_at" class="deleted-tag">已删除</span>
+            <t-tag v-else theme="success" variant="light" size="small">演示就绪</t-tag>
           </div>
           <div class="meta">{{ item.business_profile }} · v{{ item.version }}</div>
           <div v-if="item.organization_name" class="org">{{ item.organization_name }} · {{ item.primary_language }}</div>
-          <div class="score"><span class="gpa">8.6</span><span class="unit">/10 实例健康分</span></div>
+          <div v-if="!item.deleted_at" class="score">
+            <span class="gpa">8.6</span><span class="unit">/10 实例健康分</span>
+          </div>
+        </button>
+        <div class="row-actions">
+          <button
+            v-if="!item.deleted_at"
+            type="button"
+            class="action-button"
+            data-testid="soft-delete-button"
+            :disabled="busyId === item.id"
+            @click="softDelete(item)"
+          >
+            软删除
+          </button>
+          <template v-else>
+            <button
+              type="button"
+              class="action-button"
+              data-testid="restore-button"
+              :disabled="busyId === item.id"
+              @click="restoreInstance(item)"
+            >
+              恢复
+            </button>
+            <button
+              type="button"
+              class="action-button danger"
+              data-testid="purge-button"
+              :disabled="busyId === item.id"
+              @click="purgeInstance(item)"
+            >
+              完全删除
+            </button>
+          </template>
         </div>
-        <span class="arrow">查看详情</span>
-      </button>
+      </div>
     </div>
     <InstanceCreateDialog v-if="showCreate" @close="showCreate = false" @created="onCreated" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { RealtimeVoiceService } from '@/api/platform';
 import { storeInstanceId } from '@/api/platform/instanceSelection';
@@ -52,6 +97,9 @@ const svc = new RealtimeVoiceService();
 const loading = ref(true);
 const loadFailed = ref(false);
 const showCreate = ref(false);
+const showDeleted = ref(false);
+const busyId = ref<string | null>(null);
+const actionError = ref('');
 const list = ref<CustomerServiceInstance[]>([]);
 
 function goDetail(instanceId: string) {
@@ -64,9 +112,16 @@ function onCreated(instance: CustomerServiceInstance) {
   goDetail(instance.id);
 }
 
-onMounted(async () => {
+async function loadList() {
+  loading.value = true;
+  loadFailed.value = false;
+  actionError.value = '';
   try {
-    const res = await svc.listCustomerServices({ limit: 100, offset: 0 });
+    const res = await svc.listCustomerServices({
+      limit: 100,
+      offset: 0,
+      includeDeleted: showDeleted.value,
+    });
     list.value = res.items;
   } catch (_) {
     list.value = [];
@@ -74,6 +129,60 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
+}
+
+async function softDelete(item: CustomerServiceInstance) {
+  if (item.deleted_at || busyId.value) return;
+  if (!window.confirm('确认软删除该实例？可勾选“显示已删除”后恢复。')) return;
+  busyId.value = item.id;
+  actionError.value = '';
+  try {
+    await svc.deleteCustomerService(item.id);
+    await loadList();
+  } catch (_) {
+    actionError.value = '软删除失败，请稍后重试。';
+  } finally {
+    busyId.value = null;
+  }
+}
+
+async function restoreInstance(item: CustomerServiceInstance) {
+  if (!item.deleted_at || busyId.value) return;
+  busyId.value = item.id;
+  actionError.value = '';
+  try {
+    await svc.restoreCustomerService(item.id);
+    await loadList();
+  } catch (_) {
+    actionError.value = '恢复失败，请稍后重试。';
+  } finally {
+    busyId.value = null;
+  }
+}
+
+async function purgeInstance(item: CustomerServiceInstance) {
+  if (!item.deleted_at || busyId.value) return;
+  if (!window.confirm('确认完全删除？不可恢复；若仍有通话记录将失败。')) return;
+  busyId.value = item.id;
+  actionError.value = '';
+  try {
+    await svc.purgeCustomerService(item.id);
+    await loadList();
+  } catch (error) {
+    actionError.value = error instanceof Error
+      ? error.message
+      : '完全删除失败，请稍后重试。';
+  } finally {
+    busyId.value = null;
+  }
+}
+
+watch(showDeleted, () => {
+  void loadList();
+});
+
+onMounted(() => {
+  void loadList();
 });
 </script>
 
@@ -90,7 +199,22 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
+}
+
+.show-deleted {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--demo-muted);
+}
+
+.action-error {
+  margin: 0 0 12px;
+  color: #c62828;
+  font-size: 13px;
 }
 
 .new-button {
@@ -141,12 +265,63 @@ onMounted(async () => {
   border-radius: var(--demo-radius);
   background: var(--demo-card);
   box-shadow: var(--demo-shadow);
-  cursor: pointer;
-  text-align: left;
+}
 
-  &:hover {
-    border-color: var(--demo-primary);
+.row.is-deleted {
+  opacity: 0.78;
+}
+
+.row-main {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: default;
   }
+}
+
+.row-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-button {
+  padding: 7px 12px;
+  border: 1px solid var(--demo-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--demo-ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  &.danger {
+    border-color: #c62828;
+    color: #c62828;
+  }
+}
+
+.deleted-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eceff1;
+  color: #546e7a;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .name-row {
@@ -172,13 +347,6 @@ onMounted(async () => {
   margin-top: 4px;
   font-size: 12px;
   color: var(--demo-muted);
-}
-
-.arrow {
-  flex-shrink: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--demo-primary);
 }
 
 .score {
@@ -214,8 +382,10 @@ onMounted(async () => {
     align-items: flex-start;
   }
 
-  .arrow {
-    margin-top: 8px;
+  .row-actions {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 }
 </style>

@@ -69,6 +69,7 @@ export interface CustomerServiceInstance {
   tenant_prompt: string;
   voice: VoiceProfile;
   response: ResponseProfile;
+  deleted_at?: string | null;
 }
 
 export interface CustomerServicePage {
@@ -366,13 +367,16 @@ export class RealtimeVoiceService {
   }
 
   listCustomerServices(
-    page: { limit?: number; offset?: number } = {},
+    page: { limit?: number; offset?: number; includeDeleted?: boolean } = {},
     signal?: AbortSignal,
   ): Promise<CustomerServicePage> {
     const params = new URLSearchParams({
       limit: String(page.limit ?? 20),
       offset: String(page.offset ?? 0),
     });
+    if (page.includeDeleted) {
+      params.set('include_deleted', 'true');
+    }
     return this.request(
       '/api/v1/customer-services?' + params.toString(),
       { method: 'GET' },
@@ -389,6 +393,80 @@ export class RealtimeVoiceService {
       { method: 'POST', body: JSON.stringify(input) },
       signal,
     );
+  }
+
+  async deleteCustomerService(
+    customerServiceId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    try {
+      await this.fetchWithTenant(
+        '/api/v1/customer-services/' + encodeURIComponent(customerServiceId),
+        { method: 'DELETE' },
+        signal,
+        async (response) => {
+          if (!response.ok) throw new Error('unsafe response');
+          return undefined;
+        },
+      );
+    } catch {
+      throw new Error(SAFE_PLATFORM_ERROR);
+    }
+  }
+
+  restoreCustomerService(
+    customerServiceId: string,
+    signal?: AbortSignal,
+  ): Promise<CustomerServiceInstance> {
+    return this.request(
+      '/api/v1/customer-services/'
+        + encodeURIComponent(customerServiceId)
+        + '/restore',
+      { method: 'POST' },
+      signal,
+    );
+  }
+
+  async purgeCustomerService(
+    customerServiceId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    try {
+      await this.fetchWithTenant(
+        '/api/v1/customer-services/'
+          + encodeURIComponent(customerServiceId)
+          + '/purge',
+        { method: 'POST' },
+        signal,
+        async (response) => {
+          if (response.status === 409) {
+            const body = await response.json().catch(() => null) as
+              | { detail?: string }
+              | null;
+            throw new Error(
+              body?.detail === 'Customer service still has call records'
+                ? '该实例下仍有通话记录，无法完全删除'
+                : body?.detail === 'Customer service must be soft-deleted before purge'
+                  ? '请先软删除实例再完全删除'
+                  : SAFE_PLATFORM_ERROR,
+            );
+          }
+          if (!response.ok) throw new Error('unsafe response');
+          return undefined;
+        },
+      );
+    } catch (error) {
+      if (
+        error instanceof Error
+        && (
+          error.message === '该实例下仍有通话记录，无法完全删除'
+          || error.message === '请先软删除实例再完全删除'
+        )
+      ) {
+        throw error;
+      }
+      throw new Error(SAFE_PLATFORM_ERROR);
+    }
   }
 
   async updateCustomerService(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import textwrap
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -10,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # Admin-managed dialogue framework (scripts, triage, project explainers).
 DEMO_PACIFIC_PLATFORM_PROMPT = textwrap.dedent(
     """\
-    你是口腔机构的前台咨询客服。目标是自然完成约一两分钟咨询：先给清楚、有用的回答，再按需要做一个跟进问题或项目介绍，最后必要时给到店/热线指引。不收集预约信息，不办理挂号预约。
+    你是口腔机构的前台咨询客服。目标是自然完成约一两分钟咨询：先给清楚、有用的回答，再按需要做一个跟进问题或项目介绍，最后必要时引导到店或确认预约/回拨意向。
 
     ## 角色与表达
     - 专业、简洁、好懂：少术语，必要术语用大白话带一句解释。
@@ -19,7 +20,14 @@ DEMO_PACIFIC_PLATFORM_PROMPT = textwrap.dedent(
     - 不要编造价格、排班、当天能否就诊、优惠或未核实的分院电话。
     - 不做确诊、不开药、不承诺疗效；可以说常见情况和一般怎么做。
     - 急重症（严重出血不止、呼吸困难、明显肿胀伴高热、外伤掉牙等）：建议立刻急诊或拨打急救电话，并可告知打客服热线协助；不要继续闲聊。
-    - 问预约：说明会员制、预约制就诊；本语音客服不能代登记，请引导拨打业务知识里的客服热线或总部电话；不要说已经约好。
+
+    ## 预约与回拨意向（可收集，不可宣称已成功）
+    - 客户想预约或希望回电时：优先问清称呼/姓名（便于工作人员回拨），再按需问联系电话、项目（如洁牙）、大致时段（如周五下午）。
+    - 一次只追问一个点：还不知道名字时先问「请问怎么称呼您？」；已有名字再问电话或时间。
+    - 可以说「已记下您的意向，工作人员会联系确认档期」。
+    - 禁止说「已经约好」「挂号成功」「系统已登记完成」「档期已锁定」等既成事实表述；本通道只登记意向，最终档期与医生排班由工作人员确认。
+    - 不要编造某位医生是否有空、某日某时能否就诊；当前不做真实医生档期校验。
+    - 会员制、预约制就诊规则可说明；核实地址/热线以业务知识为准。
 
     ## 项目怎么做（客户问流程时用，通俗短讲，不报价）
     - 种植牙：一般先拍片看牙槽骨，再植入种植体（像“牙根”），等稳固后装牙冠。周期因人而异，不要保证一次做完。
@@ -36,7 +44,7 @@ DEMO_PACIFIC_PLATFORM_PROMPT = textwrap.dedent(
     - 牙龈肿或出血：问刷牙出血还是自发出血、有无肿胀；提醒清洁并建议尽早处理。
     - 敏感酸痛：问冷热酸甜哪类更明显；常见和牙本质暴露、过度磨损有关。
     - 智齿不适：问是否牵涉耳后、张口是否困难；反复发炎宜尽早面诊。
-    - 缺牙/松动：可介绍种植或活动义齿等常见方向，并引导热线预约评估；不替客户选定方案。
+    - 缺牙/松动：可介绍种植或活动义齿等常见方向，并引导确认预约评估意向；不替客户选定方案。
 
     ## 多轮节奏
     - 先答事实或流程，再补充一句实用信息，需要时只追问一个问题。
@@ -168,6 +176,7 @@ class CustomerServiceInstance(BaseModel):
     tenant_prompt: str = ""
     voice: VoiceProfile
     response: ResponseProfile
+    deleted_at: datetime | None = None
 
     @field_validator("display_name", "organization_name")
     @classmethod

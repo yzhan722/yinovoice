@@ -211,6 +211,37 @@ location ^~ {STAGE_PREFIX}/ {{
             f"rm -rf {REMOTE_ROOT}/voice-agent/.venv && "
             f"cp -a {PROD_ROOT}/voice-agent/.venv {REMOTE_ROOT}/voice-agent/.venv",
         )
+        # Prod venv is an editable install pointing at /opt/yino-vapi/...; rewrite
+        # those .pth entries so Stage1 never silently imports production source.
+        run(
+            ssh,
+            f"""
+python3 - <<'PY'
+from pathlib import Path
+root = Path("{REMOTE_ROOT}")
+rewrites = {{
+    Path("{PROD_ROOT}/platform-api/src"): root / "platform-api" / "src",
+    Path("{PROD_ROOT}/voice-agent/src"): root / "voice-agent" / "src",
+}}
+for site in root.glob("*/.venv/lib/python*/site-packages"):
+    for pth in site.glob("__editable__*.pth"):
+        lines = []
+        changed = False
+        for raw in pth.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            replaced = line
+            for old, new in rewrites.items():
+                if line == str(old):
+                    replaced = str(new)
+                    changed = True
+                    break
+            lines.append(replaced)
+        if changed:
+            pth.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+            print(f"rewrote {{pth}}")
+PY
+""",
+        )
         # uv venv has no pip; run uploaded src via PYTHONPATH in systemd units.
 
         # Env: derive secrets from prod files on the server (values not printed).

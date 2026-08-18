@@ -18,15 +18,27 @@ from .repositories.call_records import (
     CallRecordRepository,
     InMemoryCallRecordRepository,
 )
+from .repositories.appointments import (
+    AppointmentRepository,
+    InMemoryAppointmentRepository,
+)
+from .repositories.callback_tasks import (
+    CallbackTaskRepository,
+    InMemoryCallbackTaskRepository,
+)
 from .repositories.customer_services import (
     CustomerServiceRepository,
     InMemoryCustomerServiceRepository,
 )
 from .repositories.postgres import (
+    PostgresAppointmentRepository,
     PostgresCallRecordRepository,
+    PostgresCallbackTaskRepository,
     PostgresCustomerServiceRepository,
 )
+from .routes.appointments import create_router as create_appointment_router
 from .routes.call_records import create_router as create_call_record_router
+from .routes.callback_tasks import create_router as create_callback_task_router
 from .routes.customer_services import create_router as create_customer_service_router
 from .services.livekit_tokens import (
     AgentDispatcher,
@@ -40,6 +52,8 @@ def create_app(
     *,
     agent_dispatcher: AgentDispatcher | None = None,
     call_record_repository: CallRecordRepository | None = None,
+    appointment_repository: AppointmentRepository | None = None,
+    callback_task_repository: CallbackTaskRepository | None = None,
     recording_dir: Path | str | None = None,
     call_recording_max_bytes: int | None = None,
 ) -> FastAPI:
@@ -48,7 +62,10 @@ def create_app(
     sessions: async_sessionmaker[AsyncSession] | None = None
 
     if settings.database_url and (
-        repository is None or call_record_repository is None
+        repository is None
+        or call_record_repository is None
+        or appointment_repository is None
+        or callback_task_repository is None
     ):
         engine = create_db_engine(settings.database_url)
         sessions = create_session_factory(engine)
@@ -70,6 +87,16 @@ def create_app(
             call_record_repository = PostgresCallRecordRepository(sessions)
         else:
             call_record_repository = InMemoryCallRecordRepository()
+    if appointment_repository is None:
+        if sessions is not None:
+            appointment_repository = PostgresAppointmentRepository(sessions)
+        else:
+            appointment_repository = InMemoryAppointmentRepository()
+    if callback_task_repository is None:
+        if sessions is not None:
+            callback_task_repository = PostgresCallbackTaskRepository(sessions)
+        else:
+            callback_task_repository = InMemoryCallbackTaskRepository()
 
     if agent_dispatcher is None:
         agent_dispatcher = LiveKitAgentDispatcher(
@@ -113,7 +140,7 @@ def create_app(
         ],
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):\d+",
         allow_credentials=False,
-        allow_methods=["GET", "PUT", "POST", "DELETE"],
+        allow_methods=["GET", "PUT", "PATCH", "POST", "DELETE"],
         allow_headers=["Content-Type", "X-Tenant-ID"],
     )
     resolved_recording_dir = (
@@ -127,14 +154,28 @@ def create_app(
         else settings.call_recording_max_bytes
     )
 
-    app.include_router(create_customer_service_router(repository, token_issuer))
+    app.include_router(
+        create_customer_service_router(
+            repository,
+            token_issuer,
+            call_record_repository,
+        )
+    )
     app.include_router(
         create_call_record_router(
             call_record_repository,
             repository,
+            appointments=appointment_repository,
+            callbacks=callback_task_repository,
             recording_dir=resolved_recording_dir,
             recording_max_bytes=resolved_max_bytes,
         )
+    )
+    app.include_router(
+        create_appointment_router(appointment_repository, repository)
+    )
+    app.include_router(
+        create_callback_task_router(callback_task_repository, repository)
     )
 
     @app.get("/health")

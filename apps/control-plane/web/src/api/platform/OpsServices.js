@@ -1,8 +1,5 @@
 import { shellMockEnabled } from '@/mocks/shell';
 import {
-  listCallbackTasks,
-  updateCallbackStatus,
-  listAppointments,
   listKnowledgeFiles,
   addKnowledgeFile,
   listFollowUps,
@@ -10,27 +7,168 @@ import {
   getHomeSummary,
   getCallStats,
   updateFollowUpStatus,
+  listAppointments as listMockAppointments,
 } from '@/mocks/opsStore';
+import { DEMO_TENANT_ID } from './RealtimeVoiceService';
+
+function platformBase() {
+  return String(import.meta.env.VITE_PLATFORM_API_BASE || 'http://localhost:8000').replace(
+    /\/+$/,
+    '',
+  );
+}
+
+async function platformRequest(path, init = {}) {
+  const response = await fetch(platformBase() + path, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'X-Tenant-ID': DEMO_TENANT_ID,
+      ...(init.headers || {}),
+    },
+  });
+  if (response.status === 204) return null;
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const body = await response.json();
+      detail = typeof body?.detail === 'string' ? body.detail : '';
+    } catch (_) {
+      detail = '';
+    }
+    if (detail === '日期不可使用' || detail.includes('slot_end')) {
+      throw new Error('日期不可使用');
+    }
+    throw new Error('平台服务暂时不可用，请稍后重试');
+  }
+  return response.json();
+}
+
+function mapAppointment(row) {
+  return {
+    id: row.id,
+    status: row.status,
+    patientName: row.patient_name,
+    phone: row.phone,
+    service: row.service,
+    slotStart: row.slot_start,
+    slotEnd: row.slot_end,
+    instanceId: row.voice_agent_instance_id,
+    callRecordId: row.call_record_id || null,
+    source: row.source,
+    notes: row.notes || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    raw: row,
+  };
+}
+
+function mapCallback(row) {
+  return {
+    id: row.id,
+    status: row.status,
+    reason: row.reason,
+    callerPhone: row.caller_phone,
+    summary: row.summary || '',
+    instanceId: row.voice_agent_instance_id,
+    source: row.source,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    raw: row,
+  };
+}
 
 export class TenantCallbackService {
-  list(param = {}) {
-    if (!shellMockEnabled()) return Promise.reject(new Error('回拨 API 未对接'));
-    return listCallbackTasks(param);
+  async list(param = {}) {
+    const qs = new URLSearchParams({
+      limit: String(param.limit ?? 50),
+      offset: String(param.offset ?? 0),
+    });
+    if (param.status) qs.set('status', param.status);
+    if (param.includeCancelled) qs.set('include_cancelled', 'true');
+    const page = await platformRequest(`/api/v1/callback-tasks?${qs.toString()}`);
+    return { list: (page.items || []).map(mapCallback), total: page.total ?? 0 };
   }
-  markDone(id) {
-    if (!shellMockEnabled()) return Promise.reject(new Error('回拨 API 未对接'));
-    return updateCallbackStatus(id, 'done');
+
+  async create(input) {
+    const row = await platformRequest('/api/v1/callback-tasks', {
+      method: 'POST',
+      body: JSON.stringify({
+        caller_phone: input.callerPhone,
+        reason: input.reason,
+        summary: input.summary || '',
+        voice_agent_instance_id: input.instanceId || null,
+      }),
+    });
+    return mapCallback(row);
   }
-  reopen(id) {
-    if (!shellMockEnabled()) return Promise.reject(new Error('回拨 API 未对接'));
-    return updateCallbackStatus(id, 'open');
+
+  async markDone(id) {
+    const row = await platformRequest(
+      `/api/v1/callback-tasks/${encodeURIComponent(id)}/complete`,
+      { method: 'POST' },
+    );
+    return mapCallback(row);
+  }
+
+  async reopen(id) {
+    const row = await platformRequest(
+      `/api/v1/callback-tasks/${encodeURIComponent(id)}/reopen`,
+      { method: 'POST' },
+    );
+    return mapCallback(row);
   }
 }
 
 export class TenantAppointmentService {
-  list() {
-    if (!shellMockEnabled()) return Promise.reject(new Error('预约 API 未对接'));
-    return listAppointments();
+  async list(param = {}) {
+    const qs = new URLSearchParams({
+      limit: String(param.limit ?? 50),
+      offset: String(param.offset ?? 0),
+    });
+    if (param.status) qs.set('status', param.status);
+    if (param.includeCancelled) qs.set('include_cancelled', 'true');
+    const page = await platformRequest(`/api/v1/appointments?${qs.toString()}`);
+    return { list: (page.items || []).map(mapAppointment), total: page.total ?? 0 };
+  }
+
+  async create(input) {
+    const row = await platformRequest('/api/v1/appointments', {
+      method: 'POST',
+      body: JSON.stringify({
+        patient_name: input.patientName,
+        phone: input.phone,
+        service: input.service,
+        slot_start: input.slotStart,
+        slot_end: input.slotEnd,
+        voice_agent_instance_id: input.instanceId || null,
+        notes: input.notes || '',
+        status: input.status || 'pending',
+      }),
+    });
+    return mapAppointment(row);
+  }
+
+  async update(id, patch) {
+    const body = {};
+    if (patch.patientName != null) body.patient_name = patch.patientName;
+    if (patch.phone != null) body.phone = patch.phone;
+    if (patch.service != null) body.service = patch.service;
+    if (patch.slotStart != null) body.slot_start = patch.slotStart;
+    if (patch.slotEnd != null) body.slot_end = patch.slotEnd;
+    if (patch.status != null) body.status = patch.status;
+    if (patch.notes != null) body.notes = patch.notes;
+    const row = await platformRequest(
+      `/api/v1/appointments/${encodeURIComponent(id)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    );
+    return mapAppointment(row);
+  }
+
+  async cancel(id) {
+    await platformRequest(`/api/v1/appointments/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
   }
 }
 
@@ -56,8 +194,13 @@ export class TenantHomeService {
     return getCallStats();
   }
   appointmentsToday() {
-    if (!shellMockEnabled()) return Promise.reject(new Error('Appointment API is not connected'));
-    return listAppointments();
+    // Prefer live appointments API when available.
+    return new TenantAppointmentService().list().catch(() => {
+      if (!shellMockEnabled()) {
+        return Promise.reject(new Error('Appointment API is not connected'));
+      }
+      return listMockAppointments();
+    });
   }
 }
 

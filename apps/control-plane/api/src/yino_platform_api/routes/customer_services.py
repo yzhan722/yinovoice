@@ -1,6 +1,6 @@
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from ..dependencies import TenantId
@@ -9,6 +9,7 @@ from ..domain.customer_service import (
     CustomerServiceInstance,
     CustomerServiceUpdate,
 )
+from ..repositories.call_records import CallRecordRepository
 from ..repositories.customer_services import (
     CustomerServiceAlreadyExists,
     CustomerServiceRepository,
@@ -36,6 +37,7 @@ class CustomerServicePage(BaseModel):
 def create_router(
     repository: CustomerServiceRepository,
     token_issuer: LiveKitTokenIssuer,
+    call_records: CallRecordRepository,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/customer-services")
 
@@ -44,9 +46,13 @@ def create_router(
         tenant_id: TenantId,
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
+        include_deleted: bool = False,
     ) -> CustomerServicePage:
         items, total = await repository.list_for_tenant(
-            tenant_id, limit=limit, offset=offset
+            tenant_id,
+            limit=limit,
+            offset=offset,
+            include_deleted=include_deleted,
         )
         return CustomerServicePage(items=items, total=total)
 
@@ -160,5 +166,58 @@ def create_router(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Customer service version conflict",
             ) from error
+
+    @router.delete("/{instance_id}", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_customer_service(
+        instance_id: UUID,
+        tenant_id: TenantId,
+    ) -> Response:
+        instance = await repository.get_including_deleted(instance_id, tenant_id)
+        if instance is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Customer service not found",
+            )
+        await repository.soft_delete(instance_id, tenant_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @router.post("/{instance_id}/restore", response_model=CustomerServiceInstance)
+    async def restore_customer_service(
+        instance_id: UUID,
+        tenant_id: TenantId,
+    ) -> CustomerServiceInstance:
+        instance = await repository.get_including_deleted(instance_id, tenant_id)
+        if instance is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Customer service not found",
+            )
+        restored = await repository.restore(instance_id, tenant_id)
+        assert restored is not None
+        return restored
+
+    @router.post("/{instance_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+    async def purge_customer_service(
+        instance_id: UUID,
+        tenant_id: TenantId,
+    ) -> Response:
+        instance = await repository.get_including_deleted(instance_id, tenant_id)
+        if instance is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Customer service not found",
+            )
+        if instance.deleted_at is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Customer service must be soft-deleted before purge",
+            )
+        if await call_records.exists_for_customer_service(tenant_id, instance_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Customer service still has call records",
+            )
+        await repository.hard_delete(instance_id, tenant_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return router

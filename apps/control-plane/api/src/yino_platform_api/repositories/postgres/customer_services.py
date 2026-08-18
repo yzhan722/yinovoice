@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -36,6 +36,7 @@ def _to_domain(row: VoiceAgentInstance) -> CustomerServiceInstance:
         tenant_prompt=row.tenant_prompt,
         voice=VoiceProfile.model_validate(row.voice_config),
         response=ResponseProfile.model_validate(row.response_config),
+        deleted_at=row.deleted_at,
     )
 
 
@@ -43,7 +44,7 @@ class PostgresCustomerServiceRepository:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
 
-    async def get(
+    async def get_including_deleted(
         self, instance_id: UUID, tenant_id: UUID
     ) -> CustomerServiceInstance | None:
         async with self._sessions() as session:
@@ -57,23 +58,35 @@ class PostgresCustomerServiceRepository:
                 return None
             return _to_domain(row)
 
+    async def get(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        instance = await self.get_including_deleted(instance_id, tenant_id)
+        if instance is None or instance.deleted_at is not None:
+            return None
+        return instance
+
     async def list_for_tenant(
         self,
         tenant_id: UUID,
         *,
         limit: int,
         offset: int,
+        include_deleted: bool = False,
     ) -> tuple[list[CustomerServiceInstance], int]:
         async with self._sessions() as session:
+            filters = [VoiceAgentInstance.tenant_id == tenant_id]
+            if not include_deleted:
+                filters.append(VoiceAgentInstance.deleted_at.is_(None))
             total = await session.scalar(
                 select(func.count())
                 .select_from(VoiceAgentInstance)
-                .where(VoiceAgentInstance.tenant_id == tenant_id)
+                .where(*filters)
             )
             rows = (
                 await session.scalars(
                     select(VoiceAgentInstance)
-                    .where(VoiceAgentInstance.tenant_id == tenant_id)
+                    .where(*filters)
                     .order_by(
                         VoiceAgentInstance.updated_at.desc(),
                         VoiceAgentInstance.id.desc(),
@@ -109,6 +122,7 @@ class PostgresCustomerServiceRepository:
                     tenant_prompt=instance.tenant_prompt,
                     voice_config=instance.voice.model_dump(mode="json"),
                     response_config=instance.response.model_dump(mode="json"),
+                    deleted_at=instance.deleted_at,
                     updated_at=datetime.now(UTC),
                 )
                 .returning(VoiceAgentInstance)
@@ -142,6 +156,7 @@ class PostgresCustomerServiceRepository:
                     tenant_prompt=instance.tenant_prompt,
                     voice_config=instance.voice.model_dump(mode="json"),
                     response_config=instance.response.model_dump(mode="json"),
+                    deleted_at=instance.deleted_at,
                 )
             )
             await session.commit()
@@ -166,6 +181,7 @@ class PostgresCustomerServiceRepository:
                     tenant_prompt=instance.tenant_prompt,
                     voice_config=instance.voice.model_dump(mode="json"),
                     response_config=instance.response.model_dump(mode="json"),
+                    deleted_at=instance.deleted_at,
                 )
             )
             try:
@@ -173,4 +189,64 @@ class PostgresCustomerServiceRepository:
             except IntegrityError as error:
                 await session.rollback()
                 raise CustomerServiceAlreadyExists() from error
+            return instance
+
+    async def soft_delete(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(VoiceAgentInstance).where(
+                    VoiceAgentInstance.tenant_id == tenant_id,
+                    VoiceAgentInstance.id == instance_id,
+                )
+            )
+            if row is None:
+                return None
+            if row.deleted_at is None:
+                row.deleted_at = datetime.now(UTC)
+                row.updated_at = datetime.now(UTC)
+                await session.commit()
+                await session.refresh(row)
+            return _to_domain(row)
+
+    async def restore(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(VoiceAgentInstance).where(
+                    VoiceAgentInstance.tenant_id == tenant_id,
+                    VoiceAgentInstance.id == instance_id,
+                )
+            )
+            if row is None:
+                return None
+            if row.deleted_at is not None:
+                row.deleted_at = None
+                row.updated_at = datetime.now(UTC)
+                await session.commit()
+                await session.refresh(row)
+            return _to_domain(row)
+
+    async def hard_delete(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(VoiceAgentInstance).where(
+                    VoiceAgentInstance.tenant_id == tenant_id,
+                    VoiceAgentInstance.id == instance_id,
+                )
+            )
+            if row is None:
+                return None
+            instance = _to_domain(row)
+            await session.execute(
+                delete(VoiceAgentInstance).where(
+                    VoiceAgentInstance.tenant_id == tenant_id,
+                    VoiceAgentInstance.id == instance_id,
+                )
+            )
+            await session.commit()
             return instance

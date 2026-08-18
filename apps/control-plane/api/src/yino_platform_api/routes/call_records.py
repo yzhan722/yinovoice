@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, ConfigDict
 
 from ..dependencies import TenantId
 from ..domain.call_record import (
@@ -13,7 +14,9 @@ from ..domain.call_record import (
     CallRecordPage,
     CallRecordUpdate,
 )
+from ..repositories.appointments import AppointmentRepository
 from ..repositories.call_records import CallRecordRepository
+from ..repositories.callback_tasks import CallbackTaskRepository
 from ..repositories.customer_services import CustomerServiceRepository
 from ..services.call_recordings import (
     RecordingBadRequestError,
@@ -22,12 +25,27 @@ from ..services.call_recordings import (
     open_recording,
     save_recording,
 )
+from ..services.intent_extract import (
+    IntentExtractResult,
+    persist_extracted_intents,
+    try_extract_intents,
+)
+
+
+class IntentExtractResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    appointment_id: UUID | None = None
+    callback_task_id: UUID | None = None
+    skipped_reason: str | None = None
 
 
 def create_router(
     call_records: CallRecordRepository,
     customer_services: CustomerServiceRepository,
     *,
+    appointments: AppointmentRepository,
+    callbacks: CallbackTaskRepository,
     recording_dir: Path,
     recording_max_bytes: int,
 ) -> APIRouter:
@@ -40,6 +58,13 @@ def create_router(
                 detail="Call record not found",
             )
         return record
+
+    def _to_response(result: IntentExtractResult) -> IntentExtractResponse:
+        return IntentExtractResponse(
+            appointment_id=result.appointment_id,
+            callback_task_id=result.callback_task_id,
+            skipped_reason=result.skipped_reason,
+        )
 
     @router.post("", response_model=CallRecord, status_code=status.HTTP_201_CREATED)
     async def create_call_record(
@@ -58,7 +83,14 @@ def create_router(
             created_at=datetime.now(UTC),
             **request.model_dump(),
         )
-        return await call_records.save(record)
+        saved = await call_records.save(record)
+        if saved.messages:
+            await try_extract_intents(
+                saved,
+                appointments=appointments,
+                callbacks=callbacks,
+            )
+        return saved
 
     @router.get("", response_model=CallRecordPage)
     async def list_call_records(
@@ -101,7 +133,30 @@ def create_router(
             },
             deep=True,
         )
-        return await call_records.save(updated)
+        saved = await call_records.save(updated)
+        if saved.messages:
+            await try_extract_intents(
+                saved,
+                appointments=appointments,
+                callbacks=callbacks,
+            )
+        return saved
+
+    @router.post(
+        "/{record_id}/extract-intents",
+        response_model=IntentExtractResponse,
+    )
+    async def extract_call_record_intents(
+        record_id: UUID,
+        tenant_id: TenantId,
+    ) -> IntentExtractResponse:
+        record = _active_or_404(await call_records.get(record_id, tenant_id))
+        result = await persist_extracted_intents(
+            record,
+            appointments=appointments,
+            callbacks=callbacks,
+        )
+        return _to_response(result)
 
     @router.delete("/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_call_record(

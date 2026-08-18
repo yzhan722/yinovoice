@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -22,9 +23,14 @@ class CustomerServiceRepository(Protocol):
         *,
         limit: int,
         offset: int,
+        include_deleted: bool = False,
     ) -> tuple[list[CustomerServiceInstance], int]: ...
 
     async def get(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None: ...
+
+    async def get_including_deleted(
         self, instance_id: UUID, tenant_id: UUID
     ) -> CustomerServiceInstance | None: ...
 
@@ -36,6 +42,18 @@ class CustomerServiceRepository(Protocol):
         self, instance: CustomerServiceInstance
     ) -> CustomerServiceInstance: ...
 
+    async def soft_delete(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None: ...
+
+    async def restore(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None: ...
+
+    async def hard_delete(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None: ...
+
 
 class InMemoryCustomerServiceRepository:
     def __init__(
@@ -45,10 +63,18 @@ class InMemoryCustomerServiceRepository:
             (item.tenant_id, item.id): item for item in instances
         }
 
-    async def get(
+    async def get_including_deleted(
         self, instance_id: UUID, tenant_id: UUID
     ) -> CustomerServiceInstance | None:
         return self._instances.get((tenant_id, instance_id))
+
+    async def get(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        instance = self._instances.get((tenant_id, instance_id))
+        if instance is None or instance.deleted_at is not None:
+            return None
+        return instance
 
     async def list_for_tenant(
         self,
@@ -56,12 +82,14 @@ class InMemoryCustomerServiceRepository:
         *,
         limit: int,
         offset: int,
+        include_deleted: bool = False,
     ) -> tuple[list[CustomerServiceInstance], int]:
         items = sorted(
             (
                 instance
                 for (item_tenant_id, _), instance in self._instances.items()
                 if item_tenant_id == tenant_id
+                and (include_deleted or instance.deleted_at is None)
             ),
             key=lambda instance: str(instance.id),
             reverse=True,
@@ -81,4 +109,38 @@ class InMemoryCustomerServiceRepository:
         if key in self._instances:
             raise CustomerServiceAlreadyExists()
         self._instances[key] = instance
+        return instance
+
+    async def soft_delete(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        instance = self._instances.get((tenant_id, instance_id))
+        if instance is None:
+            return None
+        if instance.deleted_at is None:
+            instance = instance.model_copy(
+                update={"deleted_at": datetime.now(UTC)}
+            )
+            self._instances[(tenant_id, instance_id)] = instance
+        return instance
+
+    async def restore(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        instance = self._instances.get((tenant_id, instance_id))
+        if instance is None:
+            return None
+        if instance.deleted_at is not None:
+            instance = instance.model_copy(update={"deleted_at": None})
+            self._instances[(tenant_id, instance_id)] = instance
+        return instance
+
+    async def hard_delete(
+        self, instance_id: UUID, tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        key = (tenant_id, instance_id)
+        instance = self._instances.get(key)
+        if instance is None:
+            return None
+        del self._instances[key]
         return instance
