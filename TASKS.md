@@ -8,7 +8,7 @@
 - [x] Stage1：构建 `/stage1` 前端并用 `scripts/deploy_stage1_isolated.py` 部署到 `/opt/yino-vapi-stage1`（不动生产）
 - [x] Stage1：独立库 `yino_platform_stage1` + 迁移；实例/通话记录持久化冒烟通过（生产库未改）
 - [ ] Stage1 网页冒烟：列表、新建非空实例、配置页、通话记录页（接口侧已可；请浏览器确认）
-- [ ] Stage1 验收相关改动：由用户在 GitHub Desktop 自行分批 commit / push（治理 / A1 / A2 / 通话记录 CRUD / Stage1 脚本）
+- [x] Stage1 验收相关改动：A3 + 预约/回拨 Phase1–2 已本地 commit `46066b7`（push 另授）
 - [ ] A2 后续：在明确的本地/测试 PostgreSQL 环境运行演示数据初始化并做持久化冒烟验证
 - [x] A3：实例停用或软删除（先明确通话记录和配置版本的保留策略）
 - [x] B（部分）：通话记录软删除 CRUD（PUT/DELETE/restore + 网页删改）；搜索与完整审计仍待做
