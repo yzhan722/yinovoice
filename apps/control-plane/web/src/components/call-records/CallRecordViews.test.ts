@@ -96,6 +96,17 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+const listMountOptions = {
+  global: {
+    stubs: {
+      't-drawer': {
+        props: ['visible'],
+        template: '<div v-if="visible" data-testid="call-detail-drawer"><slot /><slot name="header" /></div>',
+      },
+    },
+  },
+};
+
 describe('call record list view', () => {
   beforeEach(() => {
     routerPush.mockReset();
@@ -113,10 +124,10 @@ describe('call record list view', () => {
   });
 
   it('shows tenant web Demo records without fabricated telephony fields', async () => {
-    const wrapper = mount(CallRecordListView, { props: { scope: 'tenant' } });
+    const wrapper = mount(CallRecordListView, { props: { scope: 'tenant' }, ...listMountOptions });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('网页语音 Demo 记录');
+    expect(wrapper.text()).toContain('通话记录');
     expect(wrapper.text()).toContain('演示 AI 语音客服');
     expect(wrapper.text()).toContain('网页语音');
     expect(wrapper.text()).toContain('删除');
@@ -125,6 +136,22 @@ describe('call record list view', () => {
     expect(wrapper.text()).not.toContain('客户号码');
     expect(wrapper.text()).not.toContain('接通率');
     expect(wrapper.text()).not.toContain('同步');
+  });
+
+  it('opens a side drawer for call transcript instead of navigating away', async () => {
+    const wrapper = mount(CallRecordListView, {
+      props: { scope: 'tenant' },
+      ...listMountOptions,
+    });
+    await flushPromises();
+    await wrapper.get('[data-testid="open-call-drawer"]').trigger('click');
+    await flushPromises();
+
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(serviceState.getDetail).toHaveBeenCalledWith('record-1');
+    expect(wrapper.find('[data-testid="call-detail-drawer"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('最终用户文本');
+    expect(wrapper.text()).toContain('最终客服文本');
   });
 
   it('loads deleted records and restores them from the list', async () => {
@@ -156,7 +183,7 @@ describe('call record list view', () => {
         ready: true,
       });
 
-    const wrapper = mount(CallRecordListView, { props: { scope: 'tenant' } });
+    const wrapper = mount(CallRecordListView, { props: { scope: 'tenant' }, ...listMountOptions });
     await flushPromises();
     await wrapper.get('[data-testid="show-deleted"]').setValue(true);
     await flushPromises();
@@ -173,7 +200,7 @@ describe('call record list view', () => {
   });
 
   it('labels operator records as configured demo-tenant scope', async () => {
-    const wrapper = mount(CallRecordListView, { props: { scope: 'operator' } });
+    const wrapper = mount(CallRecordListView, { props: { scope: 'operator' }, ...listMountOptions });
     await flushPromises();
 
     expect(wrapper.text()).toContain('演示租户范围');
@@ -188,7 +215,7 @@ describe('call record list view', () => {
       .mockResolvedValueOnce({ records: [listRecord], total: 30 })
       .mockReturnValueOnce(pageTwo.promise)
       .mockReturnValueOnce(pageThree.promise);
-    const wrapper = mount(CallRecordListView, { props: { scope: 'tenant' } });
+    const wrapper = mount(CallRecordListView, { props: { scope: 'tenant' }, ...listMountOptions });
     await flushPromises();
     const buttons = wrapper.findAll('.pagination button');
 

@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
 
 import {
   OperatorCallRecordService,
   TenantCallRecordService,
 } from '@/api/platform';
 import type { NormalizedCallRecordListItem } from '@/api/platform/RealtimeVoiceService';
+import CallRecordDetailDrawer from './CallRecordDetailDrawer.vue';
 
 const props = defineProps<{
   scope: 'tenant' | 'operator';
 }>();
 
-const router = useRouter();
 const recordService = props.scope === 'operator'
   ? new OperatorCallRecordService()
   : new TenantCallRecordService();
@@ -25,11 +24,11 @@ const showDeleted = ref(false);
 const current = ref(1);
 const pageSize = 10;
 const total = ref(0);
+const drawerVisible = ref(false);
+const drawerRecordId = ref('');
 let loadGeneration = 0;
 
-const title = computed(() => (
-  props.scope === 'operator' ? '通话记录' : '网页语音 Demo 记录'
-));
+const title = computed(() => '通话记录');
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
 
 const statusLabel = (status: string) => ({
@@ -72,21 +71,16 @@ const load = async () => {
     if (generation !== loadGeneration) return;
     records.value = [];
     total.value = 0;
-    errorMessage.value = '无法加载 Demo 通话记录，请稍后重试。';
+    errorMessage.value = '无法加载通话记录，请稍后重试。';
   } finally {
     if (generation === loadGeneration) loading.value = false;
   }
 };
 
-const viewDetail = (record: NormalizedCallRecordListItem) => {
+const openDrawer = (record: NormalizedCallRecordListItem) => {
   if (record.deleted) return;
-  const name = props.scope === 'operator'
-    ? 'AdminCallHistoryDetail'
-    : 'UserCallHistoryDetail';
-  void router.push({
-    name,
-    params: { id: recordKey(record) },
-  });
+  drawerRecordId.value = recordKey(record);
+  drawerVisible.value = true;
 };
 
 const removeRecord = async (record: NormalizedCallRecordListItem) => {
@@ -99,6 +93,7 @@ const removeRecord = async (record: NormalizedCallRecordListItem) => {
   actionError.value = '';
   try {
     await recordService.remove(id);
+    if (drawerRecordId.value === id) drawerVisible.value = false;
     await load();
   } catch {
     actionError.value = '删除失败，请稍后重试。';
@@ -141,9 +136,8 @@ onMounted(load);
     <header class="page-head">
       <div>
         <h1>{{ title }}</h1>
-        <p>浏览器实时语音 Demo 生成的租户内记录，不是电话 CDR。</p>
+        <p>网页实时语音通话记录。点击一行可在右侧查看转写与录音。</p>
       </div>
-      <span class="demo-tag">Demo-only</span>
     </header>
 
     <aside v-if="scope === 'operator'" class="scope-notice">
@@ -156,7 +150,7 @@ onMounted(load);
         显示已删除
       </label>
       <p class="hint">
-        已删除记录需先点「恢复」，才能打开详情继续修改。
+        已删除记录需先点「恢复」，才能打开详情。
       </p>
     </section>
 
@@ -166,7 +160,7 @@ onMounted(load);
         {{ errorMessage }}
       </div>
       <div v-else-if="!records.length" class="state-box">
-        {{ showDeleted ? '暂无通话记录（含已删除）' : '暂无网页语音 Demo 记录' }}
+        {{ showDeleted ? '暂无通话记录（含已删除）' : '暂无通话记录' }}
       </div>
       <div v-else class="records-table-wrap">
         <p v-if="actionError" class="inline-error" role="alert">{{ actionError }}</p>
@@ -186,7 +180,10 @@ onMounted(load);
             <tr
               v-for="record in records"
               :key="record.aacId"
-              :class="{ 'is-deleted': record.deleted }"
+              class="record-row"
+              :class="{ 'is-deleted': record.deleted, 'is-clickable': !record.deleted }"
+              data-testid="call-record-row"
+              @click="openDrawer(record)"
             >
               <td>
                 <code>{{ shortId(record.callId) }}</code>
@@ -201,14 +198,15 @@ onMounted(load);
               </td>
               <td>{{ formatDateTime(record.startedAt) }}</td>
               <td>{{ record.durationSec != null ? record.durationSec + ' 秒' : '—' }}</td>
-              <td class="actions-cell">
+              <td class="actions-cell" @click.stop>
                 <button
                   v-if="!record.deleted"
                   type="button"
                   class="link-button"
-                  @click="viewDetail(record)"
+                  data-testid="open-call-drawer"
+                  @click="openDrawer(record)"
                 >
-                  查看详情
+                  查看
                 </button>
                 <button
                   v-if="!record.deleted"
@@ -249,6 +247,12 @@ onMounted(load);
         下一页
       </button>
     </nav>
+
+    <CallRecordDetailDrawer
+      v-model:visible="drawerVisible"
+      :scope="scope"
+      :record-id="drawerRecordId"
+    />
   </main>
 </template>
 
@@ -281,7 +285,6 @@ h1 {
   font-size: 13px;
 }
 
-.demo-tag,
 .direction-tag,
 .status-tag,
 .deleted-tag {
@@ -292,7 +295,7 @@ h1 {
   font-size: 12px;
 }
 
-.demo-tag {
+.direction-tag {
   color: #5b6472;
   background: #eef1f5;
 }
@@ -352,6 +355,14 @@ th {
 td {
   color: #2d3748;
   font-size: 14px;
+}
+
+.record-row.is-clickable {
+  cursor: pointer;
+}
+
+.record-row.is-clickable:hover td {
+  background: #f5f8ff;
 }
 
 tr.is-deleted td {
