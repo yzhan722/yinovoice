@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Yino Voice Stage1 能力范围汇报</title>
+  <style>
+    :root {
+      --ink: #1a2332;
+      --muted: #4b5563;
+      --line: #d7dee8;
+      --navy: #1f3a5f;
+      --paper: #f7f5f0;
+      --card: #ffffff;
+      --ok: #1b7a4a;
+      --warn: #9a6709;
+      --no: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 16px/1.7 "Source Han Sans SC", "Noto Sans SC", "Microsoft YaHei",
+        "PingFang SC", sans-serif;
+    }
+    .page {
+      max-width: 880px;
+      margin: 32px auto 64px;
+      padding: 40px 48px 56px;
+      background: var(--card);
+      border: 1px solid var(--line);
+    }
+    header.cover {
+      border-bottom: 3px solid var(--navy);
+      padding-bottom: 20px;
+      margin-bottom: 28px;
+    }
+    .kicker {
+      letter-spacing: 0.12em;
+      font-size: 12px;
+      color: var(--navy);
+      font-weight: 700;
+    }
+    h1 {
+      font-size: 28px;
+      line-height: 1.3;
+      margin: 8px 0 10px;
+      color: var(--navy);
+    }
+    h2 {
+      font-size: 20px;
+      color: var(--navy);
+      margin: 36px 0 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    h3 {
+      font-size: 16px;
+      margin: 24px 0 8px;
+      color: #24344d;
+    }
+    p, li { color: var(--ink); }
+    ul, ol { padding-left: 1.3em; }
+    blockquote {
+      margin: 16px 0;
+      padding: 10px 16px;
+      border-left: 4px solid var(--navy);
+      background: #eef3f8;
+      color: #24344d;
+    }
+    code {
+      font-family: Consolas, "Sarasa Mono SC", monospace;
+      font-size: 0.9em;
+      background: #eef2f6;
+      padding: 0 4px;
+    }
+    pre {
+      background: #1a2332;
+      color: #e8edf4;
+      padding: 14px 16px;
+      overflow: auto;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    pre code { background: none; color: inherit; padding: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin: 12px 0 20px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 8px 10px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: var(--navy);
+      color: #fff;
+      font-weight: 600;
+    }
+    tr:nth-child(even) td { background: #f4f7fb; }
+    hr { border: 0; border-top: 1px solid var(--line); margin: 28px 0; }
+    em.note, .footer {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media print {
+      body { background: #fff; }
+      .page {
+        margin: 0;
+        border: 0;
+        max-width: none;
+        padding: 16mm 16mm 18mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <article class="page">
+    <header class="cover">
+      <div class="kicker">YINO VOICE · STAGE1 · 内部汇报</div>
+    </header>
+    <h1>Yino Voice Stage1 能力范围汇报</h1>
+<ul>
+<li>日期：2026-08-18</li>
+<li>用途：内部阶段汇报（能力边界、已交付、明确不做）</li>
+<li>事实来源：<code>TASKS.md</code>、<code>PROJECT_STATUS.md</code>、<code>docs/platform/</code> 现行规格，以及 Control Plane / Runtime 代码</li>
+<li>仓库：<code>E:\Repos\yinovoice</code>（主仓）；本地对照 worktree 不作为本汇报部署真源</li>
+<li>部署边界：<strong>Stage1 隔离栈</strong>，不上生产</li>
+</ul>
+<hr />
+<h2>0. 一句话结论</h2>
+<p>Stage1 已经从「本机麦克风语音闭环 Demo」推进到「可隔离部署的网页语音前台 + 租户配置 + 通话留痕 + 预约/回拨意向闭环」。<br />
+它能证明 <strong>Yino 自管配置与业务数据、Qwen Realtime 实时对话、通话结束后自动登记意向</strong>；<strong>还不能</strong>对外宣称已具备电话接入、真实挂号、真实外呼或生产级多租户。</p>
+<p>汇报口径建议：</p>
+<blockquote>
+<p>当前是 <strong>内部/受邀验收的 Stage1 平台切片</strong>，不是面向真实患者的生产客服。</p>
+</blockquote>
+<hr />
+<h2>1. 阶段定位</h2>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Stage1 现状</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>产品目标</td>
+<td>可复用 AI 语音客服平台；第一行业样例为口腔前台（太平洋口腔演示 Prompt）</td>
+</tr>
+<tr>
+<td>接入形态</td>
+<td><strong>浏览器实时语音</strong>（麦克风 ↔ LiveKit ↔ Qwen Audio Realtime）</td>
+</tr>
+<tr>
+<td>数据主权</td>
+<td>Yino 是配置与业务数据的唯一事实来源；Vapi 仅为后续适配/备用渠道，不在主链路</td>
+</tr>
+<tr>
+<td>租户模型</td>
+<td>Demo 分区：<code>X-Tenant-ID</code> 头隔离；登录为前端 shell mock（<code>demo</code> / <code>admin</code>）</td>
+</tr>
+<tr>
+<td>持久化</td>
+<td>PostgreSQL；Stage1 独立库 <code>yino_platform_stage1</code></td>
+</tr>
+<tr>
+<td>验收环境</td>
+<td><code>https://&lt;HOST&gt;/stage1/</code>，进程与库与生产隔离</td>
+</tr>
+<tr>
+<td>生产</td>
+<td><code>https://8.215.80.82/</code> 保持回滚基线，<strong>本阶段不覆盖</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Stage1 要回答的问题是：<strong>平台核心能否独立跑通「听—说—记—转意向」</strong>，而不是「能否替代诊所现有挂号系统和电话总机」。</p>
+<hr />
+<h2>2. 系统构成</h2>
+<pre><code class="language-text">浏览器（Vue 3 控制台）
+    │  实时音视频 + 配置/记录 API
+    ▼
+LiveKit（房间与媒体）
+    │  named-agent 调度 + 短期 token
+    ▼
+Runtime voice-agent
+    │  Qwen Audio Realtime（默认）
+    ▼
+Platform API（Control Plane）
+    │  实例 / 通话 / 预约 / 回拨
+    ▼
+PostgreSQL（租户隔离表）
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>路径</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>控制台前端</td>
+<td><code>apps/control-plane/web</code></td>
+<td>租户工作台、实例、实时语音、通话、预约、回拨、知识库配置</td>
+</tr>
+<tr>
+<td>Platform API</td>
+<td><code>apps/control-plane/api</code></td>
+<td>配置、LiveKit token、通话记录、录音元数据、预约/回拨 CRUD、意向抽取</td>
+</tr>
+<tr>
+<td>Voice Agent</td>
+<td><code>apps/runtime/voice-agent</code></td>
+<td>Qwen Realtime 双向音频；打断（barge-in）；按实例配置合成 Prompt</td>
+</tr>
+<tr>
+<td>数据库</td>
+<td>Docker Postgres，Stage1 独立库</td>
+<td>实例、通话、消息、预约、回拨；重启不丢</td>
+</tr>
+</tbody>
+</table>
+<p>默认实时链路：</p>
+<pre><code class="language-text">浏览器麦克风 → LiveKit → Qwen Audio Realtime → 立即回放 → 浏览器扬声器
+</code></pre>
+<ul>
+<li>模型默认：<code>qwen-audio-3.0-realtime-plus</code></li>
+<li>音色默认：<code>longanqian</code>（实例可改）</li>
+<li>话轮：<code>smart_turn</code>；用户 partial/final 转写；客服增量文本 + 音频</li>
+<li>首包音频在 <code>response.audio.delta</code> 即播，不等 <code>response.done</code></li>
+<li>用户插话会打断当前回复，并隔离迟到的旧音频/文本</li>
+</ul>
+<p>可选回退：<code>Fun-ASR + LLM + TTS</code> pipeline（非默认、不作为 Stage1 主验收）。</p>
+<hr />
+<h2>3. 已交付能力（按模块）</h2>
+<h3>3.1 实时语音对话 — 已可用</h3>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>状态</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>浏览器进房通话</td>
+<td>已交付</td>
+<td>点击开始后才申请麦克风；短期 LiveKit token</td>
+</tr>
+<tr>
+<td>多轮普通话对话</td>
+<td>已交付</td>
+<td>上下文保持；可做 1–2 分钟口腔前台演示</td>
+</tr>
+<tr>
+<td>增量转写与客服字幕</td>
+<td>已交付</td>
+<td>partial 收敛为 final；final 写入通话记录</td>
+</tr>
+<tr>
+<td>低延迟播报</td>
+<td>已交付</td>
+<td>首包即播，连续播放</td>
+</tr>
+<tr>
+<td>自然打断</td>
+<td>已交付</td>
+<td>barge-in；被打断回复不回放、不积压</td>
+</tr>
+<tr>
+<td>按实例加载配置</td>
+<td>已交付</td>
+<td>欢迎语、双层 Prompt、音色、回复风格随实例 UUID 下发</td>
+</tr>
+<tr>
+<td>安全红线</td>
+<td>已交付</td>
+<td>平台硬编码规则优先于 Tenant Prompt；禁止确诊/开药/编造价格/假装已约成功</td>
+</tr>
+</tbody>
+</table>
+<p><strong>不能说成：</strong> 已接通真实电话、SIP、手机外呼。</p>
+<h3>3.2 语音 Agent 实例 — 已可用（A1–A3）</h3>
+<p>租户可管理多套可运行配置（对外仍兼容 <code>/api/v1/customer-services</code>）。</p>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>租户内列表 / 分页 / 真实 UUID 选择</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>网页新建实例（预填合成演示文案，可改）</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>编辑展示名、机构、欢迎语、音色、双 Prompt</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>乐观锁版本冲突（409，提示刷新）</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>软删除 / 恢复；硬删仅限已软删且无关联通话</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>列表默认隐藏已删，可「显示已删除」</td>
+<td>已交付</td>
+</tr>
+</tbody>
+</table>
+<p>双层 Prompt：</p>
+<ol>
+<li>平台硬编码红线（不可被租户覆盖）</li>
+<li><code>platform_prompt</code>（运营/管理员维护的对话逻辑）</li>
+<li>边界声明</li>
+<li><code>tenant_prompt</code>（租户业务知识与话术）</li>
+</ol>
+<p>演示种子：太平洋口腔（常州）前台——地址/分院/营业时间、种植与正畸科普、症状分诊提问、转人工指引。</p>
+<h3>3.3 通话记录与浏览器录音 — 已可用（部分）</h3>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>状态</th>
+<th>边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>通话结束后落库（元数据 + final 转写）</td>
+<td>已交付</td>
+<td>网页 Demo 记录，不是电话 CDR</td>
+</tr>
+<tr>
+<td>列表 / 详情 / 改 / 软删 / 恢复</td>
+<td>已交付</td>
+<td>租户隔离；软删后对用户 404</td>
+</tr>
+<tr>
+<td>浏览器混录麦克风 + 客服音轨并上传</td>
+<td>已交付</td>
+<td>WebM 本地目录；可关闭</td>
+</tr>
+<tr>
+<td>详情页播放已就绪录音</td>
+<td>已交付</td>
+<td>无 Egress / SIP 录音 / 对象存储</td>
+</tr>
+<tr>
+<td>全文搜索、完整审计后台</td>
+<td>未做</td>
+<td>TASKS B 剩余项</td>
+</tr>
+</tbody>
+</table>
+<p>重启 API 后，库内记录仍在；磁盘上的孤儿录音文件不会自动清理。</p>
+<h3>3.4 预约结果 — 已可用（意向层，非挂号权威）</h3>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>网页新建 / 列表 / 改状态 / 取消（软语义）</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>租户隔离，落 Postgres</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>通话结束自动抽取预约意向（<code>source=voice_tool</code>）</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>列表标注「语音自动」，可跳转关联通话</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>缺电话/时段仍建预约，notes 标明待确认</td>
+<td>已交付（启发式，非 LLM Tool）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>不能说成：</strong> 已对接诊所排班、医生资源、档期冲突或外部预约系统。Scheduling Authority 仍在诊所侧，本阶段只登记意向。</p>
+<h3>3.5 回拨任务 — 已可用（任务队列，非外呼）</h3>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>网页新建 / 完成 / 重开</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>通话结束抽取「仅回电」意向</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>页头明确：本阶段不发起真实外呼</td>
+<td>已交付</td>
+</tr>
+</tbody>
+</table>
+<p><strong>不能说成：</strong> 已能自动拨出电话或转接坐席。</p>
+<h3>3.6 知识库页 — 半交付</h3>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>绑定当前实例，改音色</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>租户编辑 <code>tenant_prompt</code>；底层 Prompt 只读</td>
+<td>已交付</td>
+</tr>
+<tr>
+<td>资料上传列表 / RAG 检索进实时通话</td>
+<td><strong>演示框架</strong>，未接入</td>
+</tr>
+</tbody>
+</table>
+<p>知识目前主要通过 <strong>Prompt 文本</strong> 进入对话，不是独立知识库检索。</p>
+<h3>3.7 工作台 / 运营端 — 壳层可见</h3>
+<table>
+<thead>
+<tr>
+<th>页面</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>租户工作台 KPI、趋势、待办</td>
+<td>仍走前端 mock/演示汇总，<strong>未全部绑定真实预约/回拨 API</strong></td>
+</tr>
+<tr>
+<td>运营端通话记录</td>
+<td>可查看固定 Demo Tenant 的同一批记录</td>
+</tr>
+<tr>
+<td>运营端模板市场</td>
+<td>菜单占位，不是已发布模板产品</td>
+</tr>
+<tr>
+<td>学习计划 / 成就等 Learnova 遗留页</td>
+<td>隐藏菜单，与语音主线无关</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>4. 能力对照：PRD 目标 vs Stage1</h2>
+<p>对照内部 PRD「Platform Core / 通用接待员」目标，用三档标注，避免把规划说成交付。</p>
+<table>
+<thead>
+<tr>
+<th>PRD 目标</th>
+<th>Stage1</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>接听入站电话 / SIP</td>
+<td>未做</td>
+<td>仅浏览器</td>
+</tr>
+<tr>
+<td>实时会话与通话状态</td>
+<td>已做</td>
+<td>LiveKit 房间 + 页面状态</td>
+</tr>
+<tr>
+<td>可替换 Transcriber / Model / Voice</td>
+<td>部分</td>
+<td>默认一体 Realtime；音色可换；拆分 pipeline 仅回退</td>
+</tr>
+<tr>
+<td>Prompt + 知识库生成回答</td>
+<td>部分</td>
+<td>双 Prompt 已做；独立知识库未进链路</td>
+</tr>
+<tr>
+<td>Schema 校验的工具调用</td>
+<td>未做</td>
+<td>Qwen Realtime 无原生 Function Tool；用通话结束规则抽取代替</td>
+</tr>
+<tr>
+<td>自然打断</td>
+<td>已做</td>
+<td></td>
+</tr>
+<tr>
+<td>转人工 / 回拨任务 / 人工通知</td>
+<td>部分</td>
+<td>回拨任务队列已做；无真转接、无自动通知渠道</td>
+</tr>
+<tr>
+<td>通话记录、工具结果、阶段耗时</td>
+<td>部分</td>
+<td>记录与转写已做；无完整耗时/工具审计</td>
+</tr>
+<tr>
+<td>Tenant 隔离</td>
+<td>部分</td>
+<td>数据按 <code>tenant_id</code> 隔离；非生产认证/RBAC</td>
+</tr>
+<tr>
+<td>大陆区域准入的 Provider</td>
+<td>部分</td>
+<td>当前固定国内 Qwen Realtime；无完整准入工作流</td>
+</tr>
+<tr>
+<td>查询空档 / 真实预约改取消</td>
+<td>未做</td>
+<td>只登记意向</td>
+</tr>
+<tr>
+<td>写操作前复述确认</td>
+<td>Prompt 约束</td>
+<td>模型遵守话术，无系统级预约确认状态机</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>5. 明确不在 Stage1 范围</h2>
+<p>汇报时建议主动列出，防止听众按「完整电话客服」理解：</p>
+<ul>
+<li>真实 SIP / 运营商号码 / 主动外呼 / 诊后回访营销电话</li>
+<li>面向真实患者的公开生产服务</li>
+<li>生产级身份认证、RBAC、套餐计费、发票</li>
+<li>Google Calendar / 诊所管理系统正式连接器</li>
+<li>医生排班、项目时长、档期冲突引擎</li>
+<li>配置发布：版本 Diff / 回读 / 回滚产品化（原则已定，产品未做完）</li>
+<li>录音转自有 S3；跨区域复制；完整 SLA</li>
+<li>模板市场、第三方模板交易</li>
+<li>完整 Vapi Adapter（Vapi 不在当前主链路）</li>
+<li>AI 医疗诊断或个性化治疗决策</li>
+<li>开场强制声明 AI 身份或法定录音告知（Demo 未按生产合规验收）</li>
+</ul>
+<hr />
+<h2>6. 建议演示剧本（5–8 分钟）</h2>
+<p>适合汇报现场，一条主线即可：</p>
+<ol>
+<li><strong>登录租户</strong>（<code>demo</code>）→「我的实例」：展示已有实例或新建一条非空演示实例。</li>
+<li><strong>知识库/配置</strong>：改一句业务 Prompt 或切换音色并保存。</li>
+<li><strong>实时语音</strong>：进房，完成至少 3 轮（问候 → 问地址/项目 → 「想约周五洁牙」）。</li>
+<li><strong>打断</strong>：客服说话时插话，确认旧音频不回放。</li>
+<li><strong>结束通话</strong> →「通话记录」：有转写，必要时可播放浏览器录音。</li>
+<li><strong>预约结果</strong>：出现「语音自动」意向（缺电话会标待确认）。</li>
+<li><strong>回拨任务</strong>（可选）：若只说「请回电」则进任务队列，强调<strong>不会真拨出去</strong>。</li>
+<li><strong>边界说明</strong>：问价格/确诊时，模型应拒绝编造并引导到店/人工。</li>
+</ol>
+<p>运营视角：用 <code>admin</code> 打开「通话记录」，证明同一 Demo Tenant 记录可见。<br />
+不要在汇报材料中粘贴完整对话、患者信息和任何 API Key。</p>
+<hr />
+<h2>7. 环境与隔离（对干系人）</h2>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>生产</th>
+<th>Stage1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>入口</td>
+<td><code>https://8.215.80.82/</code></td>
+<td><code>https://8.215.80.82/stage1/</code></td>
+</tr>
+<tr>
+<td>目录</td>
+<td><code>/opt/yino-vapi</code></td>
+<td><code>/opt/yino-vapi-stage1</code></td>
+</tr>
+<tr>
+<td>数据库</td>
+<td><code>yino_platform</code>（勿改）</td>
+<td><code>yino_platform_stage1</code></td>
+</tr>
+<tr>
+<td>实例/预约等新 API</td>
+<td>回滚后列表/新建为 404</td>
+<td>可用</td>
+</tr>
+<tr>
+<td>部署授权</td>
+<td>未获许可不得改</td>
+<td>由独立脚本部署，不覆盖生产前端</td>
+</tr>
+</tbody>
+</table>
+<p>本地开发真源在 monorepo <code>apps/</code>；密钥只存在未跟踪的 <code>.env.local</code>。</p>
+<hr />
+<h2>8. 已完成与未完成（对照 TASKS）</h2>
+<p><strong>已完成（代码与 Stage1 规格，截止 2026-08-18）</strong></p>
+<ul>
+<li>A1 实例列表与真实 UUID 选择</li>
+<li>A2 网页新建 + 合成预填</li>
+<li>A3 实例软删除 / 恢复 / 条件硬删</li>
+<li>通话记录软删除 CRUD</li>
+<li>预约/回拨 Phase 1 网页真实化</li>
+<li>预约/回拨 Phase 2 通话结束意向抽取</li>
+<li>Stage1 隔离部署与独立库迁移</li>
+</ul>
+<p><strong>仍待人工/浏览器确认</strong></p>
+<ul>
+<li>Stage1 网页冒烟：列表、新建、配置、通话、预约/回拨全路径点一遍</li>
+<li>GitHub 远程审查与推送策略（本地可有 commit，不以聊天假定已上远程）</li>
+</ul>
+<p><strong>短期未做</strong></p>
+<ul>
+<li>其余脚本路径收敛、<code>deploy/src</code> 与 <code>apps/</code> 去重</li>
+<li>录音 S3、配置发布 Diff/回滚、Vapi Adapter 占位补齐</li>
+</ul>
+<p><strong>中期未做</strong></p>
+<ul>
+<li>真实预约系统、SIP 电话、生产多租户 RBAC</li>
+</ul>
+<hr />
+<h2>9. 风险与诚实边界</h2>
+<table>
+<thead>
+<tr>
+<th>风险</th>
+<th>汇报时应怎么说</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>听众把「预约」理解成已挂号</td>
+<td>这是 <strong>意向登记</strong>；缺字段会占位并标待确认</td>
+</tr>
+<tr>
+<td>听众把「回拨」理解成系统会打电话</td>
+<td>这是 <strong>人工待办队列</strong>，Stage1 不拨号</td>
+</tr>
+<tr>
+<td>工作台数字很好看</td>
+<td>工作台 KPI 仍有演示层；请以预约/回拨/通话三个列表页为准</td>
+</tr>
+<tr>
+<td>Qwen 无原生 Tool</td>
+<td>用通话结束规则抽取，可测、可幂等，但不是通话中实时写库</td>
+</tr>
+<tr>
+<td>Demo 登录与 <code>X-Tenant-ID</code></td>
+<td>证明数据分区契约，<strong>不证明</strong>生产安全</td>
+</tr>
+<tr>
+<td>知识库上传按钮</td>
+<td>资料列表未进检索；改 Prompt 才会影响下一通对话</td>
+</tr>
+<tr>
+<td>生产与 Stage1 并列</td>
+<td>验收只走 <code>/stage1/</code>；生产保持不动</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>10. 建议的下一阶段（仅方向，非本期承诺）</h2>
+<p>按依赖排序，便于汇报问答：</p>
+<ol>
+<li><strong>把工作台 KPI 接到真实预约/回拨/通话统计</strong>，去掉演示数字。</li>
+<li><strong>知识库检索进实时链路</strong>（或明确「本阶段只靠 Prompt」）。</li>
+<li><strong>真实预约权威</strong>：指定医生、时长、档期冲突——对接 Scheduling Authority，而不是继续加平台内日历。</li>
+<li><strong>SIP / 电话通道</strong>：浏览器闭环稳定后再接号码。</li>
+<li><strong>生产身份与 RBAC</strong>：替换 Demo 头与 mock 登录。</li>
+<li><strong>录音对象存储与配置发布回滚</strong>。</li>
+</ol>
+<hr />
+<h2>11. 附录：租户控制台模块一览</h2>
+<table>
+<thead>
+<tr>
+<th>菜单</th>
+<th>路由</th>
+<th>Stage1 可用性</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>工作台</td>
+<td><code>/user/dashboard</code></td>
+<td>壳 + 演示汇总</td>
+</tr>
+<tr>
+<td>我的实例</td>
+<td><code>/user/assistant-settings</code></td>
+<td>真实 API</td>
+</tr>
+<tr>
+<td>实时语音</td>
+<td><code>/user/realtime-voice</code></td>
+<td>真实链路</td>
+</tr>
+<tr>
+<td>回拨任务</td>
+<td><code>/user/callback-tasks</code></td>
+<td>真实 CRUD，不外呼</td>
+</tr>
+<tr>
+<td>预约结果</td>
+<td><code>/user/appointments</code></td>
+<td>真实 CRUD + 语音意向</td>
+</tr>
+<tr>
+<td>通话记录</td>
+<td><code>/user/call-history</code></td>
+<td>真实 CRUD + 可选录音</td>
+</tr>
+<tr>
+<td>知识库</td>
+<td><code>/user/knowledge-base</code></td>
+<td>Prompt/音色真实；资料列表演示</td>
+</tr>
+<tr>
+<td>运营通话记录</td>
+<td><code>/admin/call-history</code></td>
+<td>查看同一 Demo Tenant</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>本文只描述 Stage1 已落地能力与边界，不构成生产上线或对外商务承诺。</em></p>
+  </article>
+</body>
+</html>
