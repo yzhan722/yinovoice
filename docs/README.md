@@ -20,6 +20,9 @@
 
 - `docs/architecture/`：当前架构说明。
 - `docs/platform/`：平台规格、设计和实施计划。
+- `docs/platform/superpowers/specs/2026-08-24-commercial-mvp-inbound-voice-design.md`：入站电话商业 MVP 设计。
+- `docs/platform/superpowers/plans/2026-08-24-commercial-mvp-inbound-voice.md`：入站电话实施计划。
+- `docs/platform/2026-08-25-commercial-mvp-manual-checklist.md`：合成数据手工 A–E 冒烟清单。
 - `docs/platform/2026-08-18-stage1-capability-report.md`：Stage1 能力范围汇报（已交付 / 边界 / 演示剧本）。同目录有 `.html` / `.docx` 导出稿。
 - `docs/source-root/`：迁移源中的 ADR、PRD、研究、测试协议与历史计划。
 - `docs/operations/`：运行和维护说明。

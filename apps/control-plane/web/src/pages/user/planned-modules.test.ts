@@ -9,6 +9,11 @@ const listCallbacks = vi.fn();
 const createCallback = vi.fn();
 const markDone = vi.fn();
 const reopen = vi.fn();
+const listPhones = vi.fn();
+const listOfferings = vi.fn();
+const getProfile = vi.fn();
+const getNotify = vi.fn();
+const putNotify = vi.fn();
 
 vi.mock('@/api/platform', () => ({
   CUSTOMER_SERVICE_VERSION_CONFLICT: '配置已被更新，请刷新后重试',
@@ -33,10 +38,30 @@ vi.mock('@/api/platform', () => ({
     markDone(...args: unknown[]) { return markDone(...args); }
     reopen(...args: unknown[]) { return reopen(...args); }
   },
+  TenantPhoneNumberService: class {
+    list() { return listPhones(); }
+    create() { return Promise.resolve({}); }
+    remove() { return Promise.resolve(); }
+  },
+  TenantSchedulingService: class {
+    listOfferings() { return listOfferings(); }
+    getProfile() { return getProfile(); }
+    putProfile() { return Promise.resolve({}); }
+    putHours() { return Promise.resolve([]); }
+    createOffering() { return Promise.resolve({}); }
+    listAvailability() { return Promise.resolve({ items: [] }); }
+  },
+  TenantNotificationService: class {
+    get() { return getNotify(); }
+    put(...args: unknown[]) { return putNotify(...args); }
+  },
+  TenantToolInvocationService: class {
+    listByCallRecord() { return Promise.resolve([]); }
+  },
   RealtimeVoiceService: class {
     listCustomerServices() {
       return Promise.resolve({
-        items: [{ id: '00000000-0000-0000-0000-000000000101' }],
+        items: [{ id: '00000000-0000-0000-0000-000000000101', display_name: 'demo' }],
         total: 1,
       });
     }
@@ -75,6 +100,8 @@ vi.mock('tdesign-vue-next', () => ({
 import AppointmentsPage from './appointments/index.vue';
 import CallbackTasksPage from './callback-tasks/index.vue';
 import KnowledgeBasePage from './knowledge-base/index.vue';
+import SchedulingPage from './scheduling/index.vue';
+import TelephonyPage from './telephony/index.vue';
 
 describe('tenant appointments and callbacks are live-backed', () => {
   beforeEach(() => {
@@ -86,6 +113,11 @@ describe('tenant appointments and callbacks are live-backed', () => {
     createCallback.mockReset().mockResolvedValue({});
     markDone.mockReset().mockResolvedValue({});
     reopen.mockReset().mockResolvedValue({});
+    listPhones.mockReset().mockResolvedValue([]);
+    listOfferings.mockReset().mockResolvedValue([]);
+    getProfile.mockReset().mockRejectedValue(new Error('not found'));
+    getNotify.mockReset().mockResolvedValue({ email: '', enabled: true });
+    putNotify.mockReset().mockResolvedValue({ email: 'ops@example.test', enabled: true });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
@@ -160,5 +192,48 @@ describe('tenant appointments and callbacks are live-backed', () => {
 
     expect(wrapper.text()).toContain('可切换客服音色');
     expect(wrapper.text()).toContain('业务知识 Prompt');
+  });
+
+  it('loads telephony numbers from the Platform API', async () => {
+    listPhones.mockResolvedValueOnce([
+      {
+        id: 'phone-1',
+        e164_number: '+61400000001',
+        enabled: true,
+        voice_agent_instance_id: '00000000-0000-0000-0000-000000000101',
+      },
+    ]);
+    const wrapper = mount(TelephonyPage);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('电话号码');
+    expect(wrapper.text()).toContain('+61400000001');
+    expect(wrapper.text()).not.toContain('规划中');
+    expect(listPhones).toHaveBeenCalled();
+  });
+
+  it('loads scheduling offerings for the selected instance', async () => {
+    listOfferings.mockResolvedValueOnce([
+      { id: 'off-1', name: '洁牙', duration_minutes: 30 },
+    ]);
+    const wrapper = mount(SchedulingPage);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('排期设置');
+    expect(wrapper.text()).toContain('洁牙');
+    expect(wrapper.text()).toContain('预约通知');
+    expect(listOfferings).toHaveBeenCalled();
+  });
+
+  it('saves tenant notification settings from the scheduling page', async () => {
+    const wrapper = mount(SchedulingPage);
+    await flushPromises();
+    await wrapper.get('[data-testid="notify-email"]').setValue('ops@example.test');
+    await wrapper.get('[data-testid="notify-form"]').trigger('submit');
+    await flushPromises();
+    expect(putNotify).toHaveBeenCalledWith({
+      email: 'ops@example.test',
+      enabled: true,
+    });
   });
 });

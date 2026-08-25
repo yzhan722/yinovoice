@@ -25,4 +25,8 @@ export {
   TenantAppointmentService,
   TenantKnowledgeMock,
   TenantHomeService,
+  TenantPhoneNumberService,
+  TenantSchedulingService,
+  TenantNotificationService,
+  TenantToolInvocationService,
 } from './OpsServices';

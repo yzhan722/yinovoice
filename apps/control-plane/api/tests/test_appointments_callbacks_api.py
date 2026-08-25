@@ -4,9 +4,14 @@ from fastapi.testclient import TestClient
 
 from yino_platform_api.app import create_app
 from yino_platform_api.domain.customer_service import CustomerServiceInstance
+from yino_platform_api.repositories.appointments import InMemoryAppointmentRepository
+from yino_platform_api.repositories.call_records import InMemoryCallRecordRepository
+from yino_platform_api.repositories.callback_tasks import InMemoryCallbackTaskRepository
 from yino_platform_api.repositories.customer_services import (
     InMemoryCustomerServiceRepository,
 )
+from yino_platform_api.repositories.phone_numbers import InMemoryPhoneNumberRepository
+from yino_platform_api.repositories.scheduling import InMemorySchedulingRepository
 
 
 def _client_and_ids():
@@ -21,7 +26,16 @@ def _client_and_ids():
             )
         ]
     )
-    client = TestClient(create_app(repository=repository))
+    client = TestClient(
+        create_app(
+            repository=repository,
+            call_record_repository=InMemoryCallRecordRepository(),
+            appointment_repository=InMemoryAppointmentRepository(),
+            callback_task_repository=InMemoryCallbackTaskRepository(),
+            phone_number_repository=InMemoryPhoneNumberRepository(),
+            scheduling_repository=InMemorySchedulingRepository(),
+        )
+    )
     return client, tenant_id, other_tenant_id, service_id
 
 

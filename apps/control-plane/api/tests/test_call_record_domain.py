@@ -210,3 +210,57 @@ async def test_repository_copy_boundaries_prevent_caller_mutation() -> None:
     )
     assert total == 1
     assert listed[0].messages[0].text == "original"
+
+
+def test_in_progress_call_record_allows_open_lifecycle_fields() -> None:
+    started = datetime(2026, 8, 24, 1, 0, tzinfo=UTC)
+    record = CallRecord(
+        id=uuid4(),
+        tenant_id=uuid4(),
+        customer_service_id=uuid4(),
+        room_name="sip-melbourne-1",
+        status="in_progress",
+        started_at=started,
+        direction="inbound",
+        caller_number="+61 400 000 001",
+        callee_number="+61400000099",
+        provider_call_id="livekit-sip-abc",
+        messages=[],
+        created_at=started,
+    )
+
+    assert record.ended_at is None
+    assert record.duration_sec is None
+    assert record.ended_reason is None
+    assert record.caller_number == "+61400000001"
+    assert record.callee_number == "+61400000099"
+    assert record.direction == "inbound"
+
+
+def test_call_record_create_rejects_in_progress_one_shot_hangup() -> None:
+    values = {**valid_request_values(), "status": "in_progress"}
+    del values["ended_at"]
+    del values["duration_sec"]
+
+    with pytest.raises(ValidationError):
+        CallRecordCreate.model_validate(values)
+
+
+def test_completed_call_record_still_requires_end_fields() -> None:
+    started = datetime(2026, 8, 24, 1, 0, tzinfo=UTC)
+    with pytest.raises(ValidationError):
+        CallRecord(
+            id=uuid4(),
+            tenant_id=uuid4(),
+            customer_service_id=uuid4(),
+            room_name="web-room",
+            status="completed",
+            started_at=started,
+            created_at=started,
+        )
+
+
+def test_sip_inbound_direction_alias_is_rejected() -> None:
+    values = {**valid_request_values(), "direction": "sip_inbound"}
+    with pytest.raises(ValidationError):
+        CallRecordCreate.model_validate(values)

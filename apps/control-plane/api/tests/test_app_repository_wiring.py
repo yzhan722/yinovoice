@@ -21,6 +21,13 @@ from yino_platform_api.repositories.callback_tasks import InMemoryCallbackTaskRe
 from yino_platform_api.repositories.customer_services import (
     InMemoryCustomerServiceRepository,
 )
+from yino_platform_api.repositories.phone_numbers import InMemoryPhoneNumberRepository
+from yino_platform_api.repositories.scheduling import InMemorySchedulingRepository
+from yino_platform_api.repositories.tool_invocations import (
+    InMemoryToolInvocationRepository,
+)
+from yino_platform_api.services.notifications import InMemoryNotificationRepository
+
 PLATFORM_API_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -72,5 +79,9 @@ def test_explicit_repositories_keep_memory_even_with_database_url(
         call_record_repository=InMemoryCallRecordRepository(),
         appointment_repository=InMemoryAppointmentRepository(),
         callback_task_repository=InMemoryCallbackTaskRepository(),
+        phone_number_repository=InMemoryPhoneNumberRepository(),
+        scheduling_repository=InMemorySchedulingRepository(),
+        tool_invocation_repository=InMemoryToolInvocationRepository(),
+        notification_repository=InMemoryNotificationRepository(),
     )
     assert app.state.persistence == "memory"

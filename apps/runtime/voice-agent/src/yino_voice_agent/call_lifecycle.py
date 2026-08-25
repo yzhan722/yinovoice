@@ -1,0 +1,142 @@
+"""Control Plane call-session client used by the voice runtime."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Mapping
+from typing import Any
+from uuid import UUID
+
+import httpx
+
+from .runtime_config import DispatchMetadata
+
+logger = logging.getLogger(__name__)
+
+
+async def _success_json(response: Any) -> dict[str, Any]:
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int) and status_code >= 400:
+        raise RuntimeError(f"call lifecycle HTTP {status_code}")
+    raw = response.json()
+    if hasattr(raw, "__await__"):
+        raw = await raw
+    if not isinstance(raw, Mapping):
+        raise RuntimeError("call lifecycle response must be a JSON object")
+    return dict(raw)
+
+
+def direction_for_channel(channel: str) -> str:
+    return "inbound" if channel == "sip" else "web"
+
+
+class CallLifecycleClient:
+    """Best-effort call session writer. Network failures never raise."""
+
+    def __init__(self, http: httpx.AsyncClient, tenant_id: UUID) -> None:
+        self._http = http
+        self._tenant_id = tenant_id
+        self.record_id: UUID | None = None
+        self._start_payload: dict[str, Any] | None = None
+        self._pending_messages: list[dict[str, Any]] = []
+
+    @property
+    def _headers(self) -> dict[str, str]:
+        return {"X-Tenant-ID": str(self._tenant_id)}
+
+    async def start_from_dispatch(
+        self,
+        metadata: DispatchMetadata,
+        room_name: str,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "customer_service_id": str(metadata.customer_service_id),
+            "room_name": room_name,
+            "direction": direction_for_channel(metadata.channel),
+        }
+        if metadata.caller_number is not None:
+            payload["caller_number"] = metadata.caller_number
+        if metadata.callee_number is not None:
+            payload["callee_number"] = metadata.callee_number
+        if metadata.provider_call_id is not None:
+            payload["provider_call_id"] = metadata.provider_call_id
+        self._start_payload = payload
+        await self._post_start(payload)
+
+    async def append_final(self, role: str, text: str, sequence: int) -> None:
+        message = {"role": role, "text": text, "sequence": sequence}
+        if self.record_id is None:
+            self._pending_messages.append(message)
+            return
+        await self._post_message(message)
+
+    async def finish(
+        self,
+        *,
+        status: str = "completed",
+        ended_reason: str = "completed",
+    ) -> None:
+        if self.record_id is None and self._start_payload is not None:
+            await self._post_start(self._start_payload)
+        pending = list(self._pending_messages)
+        self._pending_messages.clear()
+        for message in pending:
+            await self._post_message(message)
+        if self.record_id is None:
+            logger.error(
+                "call lifecycle finish dropped; start never succeeded tenant_id=%s",
+                self._tenant_id,
+            )
+            return
+        try:
+            response = await self._http.post(
+                f"/api/v1/call-sessions/{self.record_id}/finish",
+                headers=self._headers,
+                json={"status": status, "ended_reason": ended_reason},
+            )
+            await _success_json(response)
+        except Exception:
+            logger.exception(
+                "call lifecycle finish failed tenant_id=%s record_id=%s",
+                self._tenant_id,
+                self.record_id,
+            )
+
+    async def _post_start(self, payload: dict[str, Any]) -> None:
+        try:
+            response = await self._http.post(
+                "/api/v1/call-sessions/start",
+                headers=self._headers,
+                json=payload,
+            )
+            body = await _success_json(response)
+            self.record_id = UUID(str(body["id"]))
+            pending = list(self._pending_messages)
+            self._pending_messages.clear()
+            for message in pending:
+                await self._post_message(message)
+        except Exception:
+            logger.exception(
+                "call lifecycle start failed tenant_id=%s room=%s",
+                self._tenant_id,
+                payload.get("room_name"),
+            )
+
+    async def _post_message(self, message: dict[str, Any]) -> None:
+        if self.record_id is None:
+            self._pending_messages.append(message)
+            return
+        try:
+            response = await self._http.post(
+                f"/api/v1/call-sessions/{self.record_id}/messages",
+                headers=self._headers,
+                json=message,
+            )
+            await _success_json(response)
+        except Exception:
+            logger.exception(
+                "call lifecycle message failed tenant_id=%s record_id=%s",
+                self._tenant_id,
+                self.record_id,
+            )
+            self._pending_messages.append(message)

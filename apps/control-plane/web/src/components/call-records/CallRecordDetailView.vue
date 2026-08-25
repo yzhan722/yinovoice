@@ -65,6 +65,13 @@ const recordingStatus = computed<RecordingStatus | ''>(() => (
   detail.value?.recording_status || ''
 ));
 
+const directionLabel = computed(() => {
+  const direction = String(detail.value?.direction || '');
+  if (direction === 'inbound') return '入站电话';
+  if (direction === 'outbound') return '外呼';
+  return '网页语音';
+});
+
 const formatDateTime = (value: string) => (
   value ? value.replace('T', ' ').replace('Z', ' UTC') : '—'
 );
@@ -207,8 +214,8 @@ onBeforeUnmount(() => {
       <section class="summary-card">
         <header>
           <div>
-            <span class="eyebrow">Web voice Demo record</span>
-            <h1>网页语音通话详情</h1>
+            <span class="eyebrow">通话记录</span>
+            <h1>{{ directionLabel }}详情</h1>
           </div>
           <span class="status-tag">{{ statusLabel }}</span>
         </header>
@@ -219,7 +226,7 @@ onBeforeUnmount(() => {
           </div>
           <div>
             <dt>方向</dt>
-            <dd>网页语音</dd>
+            <dd>{{ directionLabel }}</dd>
           </div>
           <div>
             <dt>开始时间</dt>

@@ -1,5 +1,19 @@
 # PROJECT_STATUS
 
+## 2026-08-25 商业 MVP 入站电话闭环（代码已落地，未部署）
+
+- **范围**：网页/会话后处理闭环优先：内建排期、Tool、挂断抽取、通知。电话 PSTN **暂缓**。
+- **落点**：`apps/control-plane/api`、`apps/runtime/voice-agent`、`apps/control-plane/web`。未扩展 `deploy/src`。
+- **SIP**：入站字段与 dry-run 脚本仍在；不接真实 trunk。网页 Demo 仍为 `web`。
+- **排期**：Yino 内建单资源；`pending`/`confirmed` 占用；午餐用两段营业时间。不再编造「下个工作日上午」预约。
+- **挂断抽取**：按时区解析「周五下午」等；无排期、无匹配项目或 `ensure_slot_available` 失败则写回拨。支持中国大陆手机与 `+614` 澳洲手机。
+- **转接**：无实时转人工；只能 `create_callback`。
+- **录音**：网页仍本地 blob；SIP Fake Egress 对象键仍保留。四项 S3 变量未配齐则关闭。
+- **通知**：`SMTP_HOST` + `SMTP_FROM` 启用真实 smtplib（587 STARTTLS / 465 SSL）；失败记事件、不回滚业务写。排期页可保存租户通知邮箱。
+- **租户**：Demo `X-Tenant-ID`。Alembic head：`20260824_0009`。
+- **冒烟**：`scripts/smoke_commercial_mvp.py`（内存仓库）；手工清单 `docs/platform/2026-08-25-commercial-mvp-manual-checklist.md`。
+- **未做**：真实 PSTN（Twilio 不能服务大陆 +86）、真实 Egress/S3 客户端、生产 RBAC、生产部署。Agent 未 commit / push。
+
 ## 2026-08-13 主仓库与部署边界
 
 - **新主仓库**：`E:\Repos\yinovoice`（`yzhan722/yinovoice`）。旧 `YinoVoicePlatform` 仅对照，不覆盖新仓。

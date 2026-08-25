@@ -17,6 +17,7 @@ class Appointment(BaseModel):
     tenant_id: UUID
     voice_agent_instance_id: UUID | None = None
     call_record_id: UUID | None = None
+    service_offering_id: UUID | None = None
     patient_name: str = Field(min_length=1, max_length=80)
     phone: str = Field(min_length=1, max_length=32)
     service: str = Field(min_length=1, max_length=120)
@@ -44,6 +45,7 @@ class AppointmentCreate(BaseModel):
     slot_start: datetime
     slot_end: datetime
     voice_agent_instance_id: UUID | None = None
+    service_offering_id: UUID | None = None
     notes: str = Field(default="", max_length=2000)
     status: AppointmentStatus = "pending"
 

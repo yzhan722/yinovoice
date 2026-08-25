@@ -12,11 +12,14 @@ from ..domain.appointment import (
 )
 from ..repositories.appointments import AppointmentRepository
 from ..repositories.customer_services import CustomerServiceRepository
+from ..repositories.scheduling import SchedulingRepository
+from ..services.booking import SlotUnavailableError, ensure_slot_available
 
 
 def create_router(
     appointments: AppointmentRepository,
     customer_services: CustomerServiceRepository,
+    scheduling: SchedulingRepository,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/appointments")
 
@@ -62,12 +65,28 @@ def create_router(
         instance_id = await _resolve_instance(
             request.voice_agent_instance_id, tenant_id
         )
+        try:
+            await ensure_slot_available(
+                appointments=appointments,
+                scheduling=scheduling,
+                tenant_id=tenant_id,
+                instance_id=instance_id,
+                slot_start=request.slot_start,
+                slot_end=request.slot_end,
+                service_offering_id=request.service_offering_id,
+            )
+        except SlotUnavailableError as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(error),
+            ) from error
         now = datetime.now(UTC)
         return await appointments.create(
             Appointment(
                 id=uuid4(),
                 tenant_id=tenant_id,
                 voice_agent_instance_id=instance_id,
+                service_offering_id=request.service_offering_id,
                 patient_name=request.patient_name,
                 phone=request.phone,
                 service=request.service,
@@ -115,6 +134,22 @@ def create_router(
                 detail="日期不可使用",
             )
         updated = item.model_copy(update=data)
+        try:
+            await ensure_slot_available(
+                appointments=appointments,
+                scheduling=scheduling,
+                tenant_id=tenant_id,
+                instance_id=updated.voice_agent_instance_id,
+                slot_start=updated.slot_start,
+                slot_end=updated.slot_end,
+                service_offering_id=updated.service_offering_id,
+                exclude_id=updated.id,
+            )
+        except SlotUnavailableError as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(error),
+            ) from error
         return await appointments.save(updated)
 
     @router.delete("/{appointment_id}", status_code=status.HTTP_204_NO_CONTENT)

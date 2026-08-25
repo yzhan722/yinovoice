@@ -18,6 +18,8 @@ from ..repositories.appointments import AppointmentRepository
 from ..repositories.call_records import CallRecordRepository
 from ..repositories.callback_tasks import CallbackTaskRepository
 from ..repositories.customer_services import CustomerServiceRepository
+from ..repositories.scheduling import SchedulingRepository
+from ..repositories.tool_invocations import ToolInvocationRepository
 from ..services.call_recordings import (
     RecordingBadRequestError,
     RecordingNotFoundError,
@@ -30,6 +32,7 @@ from ..services.intent_extract import (
     persist_extracted_intents,
     try_extract_intents,
 )
+from ..services.notifications import NotificationService
 
 
 class IntentExtractResponse(BaseModel):
@@ -46,6 +49,9 @@ def create_router(
     *,
     appointments: AppointmentRepository,
     callbacks: CallbackTaskRepository,
+    tools: ToolInvocationRepository | None = None,
+    scheduling: SchedulingRepository | None = None,
+    notifications: NotificationService | None = None,
     recording_dir: Path,
     recording_max_bytes: int,
 ) -> APIRouter:
@@ -89,6 +95,9 @@ def create_router(
                 saved,
                 appointments=appointments,
                 callbacks=callbacks,
+                tools=tools,
+                scheduling=scheduling,
+                notifications=notifications,
             )
         return saved
 
@@ -139,6 +148,9 @@ def create_router(
                 saved,
                 appointments=appointments,
                 callbacks=callbacks,
+                tools=tools,
+                scheduling=scheduling,
+                notifications=notifications,
             )
         return saved
 
@@ -155,6 +167,9 @@ def create_router(
             record,
             appointments=appointments,
             callbacks=callbacks,
+            tools=tools,
+            scheduling=scheduling,
+            notifications=notifications,
         )
         return _to_response(result)
 

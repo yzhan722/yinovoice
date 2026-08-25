@@ -41,6 +41,12 @@ const statusClass = (status: string) => (
   status === 'completed' ? 'is-success' : status === 'failed' ? 'is-error' : 'is-warning'
 );
 
+const directionLabel = (direction: string) => {
+  if (direction === 'inbound') return '入站电话';
+  if (direction === 'outbound') return '外呼';
+  return '网页语音';
+};
+
 const formatDateTime = (value: string) => (
   value ? value.replace('T', ' ').replace('Z', ' UTC') : '—'
 );
@@ -190,7 +196,7 @@ onMounted(load);
                 <span v-if="record.deleted" class="deleted-tag">已删除</span>
               </td>
               <td>{{ record.assistantName || '—' }}</td>
-              <td><span class="direction-tag">网页语音</span></td>
+              <td><span class="direction-tag">{{ directionLabel(record.direction) }}</span></td>
               <td>
                 <span class="status-tag" :class="statusClass(record.status)">
                   {{ statusLabel(record.status) }}

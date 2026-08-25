@@ -5,8 +5,8 @@ YINO AI Voice（Yino Voice）主仓库：以 Yino 为业务与配置的唯一事
 ## 当前系统定位
 
 - **阶段**：从本地/LAN Demo 与 Vapi 迁移研究，收敛到可长期协作的 monorepo。
-- **已落地**：Control Plane API、Runtime voice-agent、Vue 管理/通话前端、部分部署包与 RAGFlow 集成模板。
-- **未完成/规划中**：生产级多租户、SIP 电话、录音转自有 S3、配置发布 Diff/回滚、完整 Vapi Adapter。
+- **已落地**：Control Plane API、Runtime voice-agent、Vue 管理/通话前端、商业闭环（内建排期、通话中 Tool、诚实挂断抽取、SMTP 通知、TDesign 排期/电话页）。真实 PSTN 暂缓。
+- **未完成/规划中**：生产级多租户与 RBAC、真实 PSTN/Egress、配置发布 Diff/回滚、完整 Vapi Adapter。
 
 ## 主要组件
 

@@ -35,6 +35,18 @@ class CallRecordRepository(Protocol):
         customer_service_id: UUID,
     ) -> bool: ...
 
+    async def find_by_provider_call_id(
+        self,
+        tenant_id: UUID,
+        provider_call_id: str,
+    ) -> CallRecord | None: ...
+
+    async def find_in_progress_by_room_name(
+        self,
+        tenant_id: UUID,
+        room_name: str,
+    ) -> CallRecord | None: ...
+
 
 class InMemoryCallRecordRepository:
     def __init__(self) -> None:
@@ -105,3 +117,35 @@ class InMemoryCallRecordRepository:
             and record.customer_service_id == customer_service_id
             for record in self._records.values()
         )
+
+    async def find_by_provider_call_id(
+        self,
+        tenant_id: UUID,
+        provider_call_id: str,
+    ) -> CallRecord | None:
+        matches = [
+            record
+            for record in self._records.values()
+            if record.tenant_id == tenant_id
+            and record.deleted_at is None
+            and record.provider_call_id == provider_call_id
+        ]
+        if not matches:
+            return None
+        matches.sort(key=lambda record: record.created_at, reverse=True)
+        return matches[0].model_copy(deep=True)
+
+    async def find_in_progress_by_room_name(
+        self,
+        tenant_id: UUID,
+        room_name: str,
+    ) -> CallRecord | None:
+        for record in self._records.values():
+            if (
+                record.tenant_id == tenant_id
+                and record.deleted_at is None
+                and record.status == "in_progress"
+                and record.room_name == room_name
+            ):
+                return record.model_copy(deep=True)
+        return None

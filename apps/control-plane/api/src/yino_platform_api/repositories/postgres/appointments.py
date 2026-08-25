@@ -18,6 +18,7 @@ def _to_domain(row: AppointmentRow) -> Appointment:
         tenant_id=row.tenant_id,
         voice_agent_instance_id=row.voice_agent_instance_id,
         call_record_id=row.call_record_id,
+        service_offering_id=row.service_offering_id,
         patient_name=row.patient_name,
         phone=row.phone,
         service=row.service,
@@ -91,6 +92,21 @@ class PostgresAppointmentRepository:
             )
             return _to_domain(row) if row is not None else None
 
+    async def list_occupying(
+        self, tenant_id: UUID, instance_id: UUID
+    ) -> list[Appointment]:
+        async with self._sessions() as session:
+            rows = (
+                await session.scalars(
+                    select(AppointmentRow).where(
+                        AppointmentRow.tenant_id == tenant_id,
+                        AppointmentRow.voice_agent_instance_id == instance_id,
+                        AppointmentRow.status.in_(("pending", "confirmed")),
+                    )
+                )
+            ).all()
+            return [_to_domain(row) for row in rows]
+
     async def create(self, appointment: Appointment) -> Appointment:
         async with self._sessions() as session:
             session.add(
@@ -99,6 +115,7 @@ class PostgresAppointmentRepository:
                     tenant_id=appointment.tenant_id,
                     voice_agent_instance_id=appointment.voice_agent_instance_id,
                     call_record_id=appointment.call_record_id,
+                    service_offering_id=appointment.service_offering_id,
                     patient_name=appointment.patient_name,
                     phone=appointment.phone,
                     service=appointment.service,
@@ -133,6 +150,7 @@ class PostgresAppointmentRepository:
             row.notes = appointment.notes
             row.voice_agent_instance_id = appointment.voice_agent_instance_id
             row.call_record_id = appointment.call_record_id
+            row.service_offering_id = appointment.service_offering_id
             row.updated_at = datetime.now(UTC)
             await session.commit()
             await session.refresh(row)

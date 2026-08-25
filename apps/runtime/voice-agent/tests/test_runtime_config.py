@@ -68,6 +68,43 @@ def test_dispatch_metadata_parses_authoritative_identifiers() -> None:
     assert parsed.customer_service_id == service_id
     assert parsed.tenant_id == tenant_id
     assert parsed.config_version == 3
+    assert parsed.channel == "web"
+    assert parsed.caller_number is None
+
+
+def test_dispatch_metadata_parses_optional_sip_fields() -> None:
+    service_id = uuid4()
+    tenant_id = uuid4()
+    parsed = DispatchMetadata.from_json(
+        json.dumps(
+            {
+                "customer_service_id": str(service_id),
+                "tenant_id": str(tenant_id),
+                "config_version": 2,
+                "channel": "sip",
+                "caller_number": "+61400000099",
+                "callee_number": "+61400000001",
+                "provider_call_id": "sip-call-1",
+                "sip_trunk_id": "ST_inbound",
+            }
+        )
+    )
+    assert parsed.channel == "sip"
+    assert parsed.caller_number == "+61400000099"
+    assert parsed.callee_number == "+61400000001"
+    assert parsed.provider_call_id == "sip-call-1"
+    assert parsed.sip_trunk_id == "ST_inbound"
+
+
+def test_dispatch_metadata_rejects_invalid_optional_sip_fields() -> None:
+    base = {
+        "customer_service_id": str(uuid4()),
+        "tenant_id": str(uuid4()),
+        "config_version": 1,
+        "channel": "pstn",
+    }
+    with pytest.raises(RuntimeConfigurationError, match="channel"):
+        DispatchMetadata.from_json(json.dumps(base))
 
 
 @pytest.mark.parametrize(

@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router';
 import {
   OperatorCallRecordService,
   TenantCallRecordService,
+  TenantToolInvocationService,
 } from '@/api/platform';
 import type {
   NormalizedCallRecordDetail,
@@ -37,6 +38,7 @@ const recordService = (props.scope === 'operator'
 const loading = ref(false);
 const errorMessage = ref('');
 const detail = ref<NormalizedCallRecordDetail | null>(null);
+const toolInvocations = ref<any[]>([]);
 const recordingLoading = ref(false);
 const recordingError = ref(false);
 const audioUrl = ref('');
@@ -51,6 +53,13 @@ const statusLabel = computed(() => {
   };
   const status = String(detail.value?.aacStatus || detail.value?.status || '');
   return labels[status] || '—';
+});
+
+const directionLabel = computed(() => {
+  const direction = String(detail.value?.direction || '');
+  if (direction === 'inbound') return '入站电话';
+  if (direction === 'outbound') return '外呼';
+  return '网页语音';
 });
 
 const recordingStatus = computed<RecordingStatus | ''>(() => (
@@ -117,6 +126,16 @@ const loadRecording = async (id: string) => {
   }
 };
 
+const loadTools = async (id: string) => {
+  toolInvocations.value = [];
+  try {
+    const rows = await new TenantToolInvocationService().listByCallRecord(id);
+    toolInvocations.value = Array.isArray(rows) ? rows : [];
+  } catch {
+    toolInvocations.value = [];
+  }
+};
+
 const loadDetail = async (id: string) => {
   if (!id) return;
   const generation = ++loadGeneration;
@@ -130,6 +149,7 @@ const loadDetail = async (id: string) => {
     if (generation !== loadGeneration) return;
     detail.value = next;
     void loadRecording(id);
+    void loadTools(id);
   } catch {
     if (generation !== loadGeneration) return;
     errorMessage.value = '无法加载通话详情，请稍后重试。';
@@ -160,8 +180,10 @@ watch(
     abortRecordingFetch();
     resetRecordingState();
     detail.value = null;
+    toolInvocations.value = [];
     errorMessage.value = '';
   },
+  { immediate: true },
 );
 
 onBeforeUnmount(() => {
@@ -209,7 +231,11 @@ onBeforeUnmount(() => {
           </div>
           <div>
             <dt>方向</dt>
-            <dd>网页语音</dd>
+            <dd>{{ directionLabel }}</dd>
+          </div>
+          <div>
+            <dt>主叫 / 被叫</dt>
+            <dd>{{ detail.caller_number || '—' }} / {{ detail.callee_number || '—' }}</dd>
           </div>
           <div>
             <dt>结束时间</dt>
@@ -233,7 +259,25 @@ onBeforeUnmount(() => {
               :src="audioUrl"
             />
           </div>
+          <div v-else-if="detail.recording_object_key" class="state" data-testid="drawer-sip-object-key">
+            SIP 对象键 <code>{{ detail.recording_object_key }}</code>
+            <span v-if="recordingStatus">（{{ recordingStatus }}）</span>
+          </div>
           <div v-else class="state">无录音</div>
+        </section>
+
+        <section class="panel">
+          <header>
+            <h3>Tool 调用</h3>
+          </header>
+          <div v-if="!toolInvocations.length" class="state">本次通话没有 Tool 记录</div>
+          <ul v-else class="tools" data-testid="drawer-tools">
+            <li v-for="item in toolInvocations" :key="item.id">
+              <strong>{{ item.tool_name }}</strong>
+              <span>{{ item.status }} · {{ formatDateTime(item.created_at || '') }}</span>
+              <p>{{ item.result?.message || JSON.stringify(item.result) || '—' }}</p>
+            </li>
+          </ul>
         </section>
 
         <section class="panel transcript-panel">
@@ -429,6 +473,21 @@ dd {
   white-space: pre-wrap;
   color: #1d2129;
 }
+
+.tools {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.tools li {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+.tools span { color: #687386; font-size: 12px; }
+.tools p { margin: 0; color: #1d2129; }
 
 .footer-actions {
   display: flex;

@@ -9,6 +9,9 @@ const serviceState = vi.hoisted(() => ({
   remove: vi.fn(),
   restore: vi.fn(),
 }));
+const toolState = vi.hoisted(() => ({
+  listByCallRecord: vi.fn(),
+}));
 const recordingState = vi.hoisted(() => ({
   fetchBlob: vi.fn(),
 }));
@@ -51,9 +54,15 @@ vi.mock('@/api/platform', () => {
   return {
     TenantCallRecordService: CallRecordService,
     OperatorCallRecordService: CallRecordService,
+    TenantToolInvocationService: class {
+      listByCallRecord(...args: unknown[]) {
+        return toolState.listByCallRecord(...args);
+      }
+    },
   };
 });
 
+import CallRecordDetailDrawer from './CallRecordDetailDrawer.vue';
 import CallRecordDetailView from './CallRecordDetailView.vue';
 import CallRecordListView from './CallRecordListView.vue';
 
@@ -120,6 +129,7 @@ describe('call record list view', () => {
     serviceState.update.mockReset().mockResolvedValue(detailRecord);
     serviceState.remove.mockReset().mockResolvedValue(undefined);
     serviceState.restore.mockReset().mockResolvedValue(detailRecord);
+    toolState.listByCallRecord.mockReset().mockResolvedValue([]);
     vi.stubGlobal('confirm', vi.fn(() => true));
   });
 
@@ -245,6 +255,7 @@ describe('call record detail view', () => {
     serviceState.update.mockReset().mockResolvedValue(detailRecord);
     serviceState.remove.mockReset().mockResolvedValue(undefined);
     serviceState.restore.mockReset().mockResolvedValue(detailRecord);
+    toolState.listByCallRecord.mockReset().mockResolvedValue([]);
     vi.stubGlobal('confirm', vi.fn(() => true));
     recordingState.fetchBlob.mockReset().mockResolvedValue(new Blob(['audio'], { type: 'audio/webm' }));
     objectUrlState.create.mockReset().mockReturnValue('blob:mock-recording-url');
@@ -358,5 +369,57 @@ describe('call record detail view', () => {
     await flushPromises();
 
     expect(objectUrlState.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('call record detail drawer', () => {
+  beforeEach(() => {
+    serviceState.getDetail.mockReset();
+    recordingState.fetchBlob.mockReset().mockRejectedValue(new Error('no blob'));
+    toolState.listByCallRecord.mockReset().mockResolvedValue([]);
+  });
+
+  it('shows inbound numbers, tool calls, and SIP object key', async () => {
+    serviceState.getDetail.mockResolvedValue({
+      ...detailRecord,
+      direction: 'inbound',
+      caller_number: '+61400000001',
+      callee_number: '+61400000099',
+      recording_status: 'uploading',
+      recording_object_key: 'recordings/00000000-0000-0000-0000-000000000001/2026/08/record-1.ogg',
+    });
+    toolState.listByCallRecord.mockResolvedValue([
+      {
+        id: 'tool-1',
+        tool_name: 'create_callback',
+        status: 'ok',
+        created_at: '2026-08-25T01:00:00Z',
+        result: { message: '已创建回拨' },
+      },
+    ]);
+
+    const wrapper = mount(CallRecordDetailDrawer, {
+      props: { scope: 'tenant', recordId: 'record-1', visible: true },
+      global: {
+        stubs: {
+          't-drawer': {
+            props: ['visible'],
+            template:
+              '<div v-if="visible" data-testid="call-detail-drawer"><slot name="header" /><slot /></div>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('入站电话');
+    expect(wrapper.text()).toContain('+61400000001');
+    expect(wrapper.text()).toContain('+61400000099');
+    expect(wrapper.text()).toContain('create_callback');
+    expect(wrapper.text()).toContain('已创建回拨');
+    expect(wrapper.get('[data-testid="drawer-sip-object-key"]').text()).toContain(
+      'recordings/00000000-0000-0000-0000-000000000001/2026/08/record-1.ogg',
+    );
+    expect(toolState.listByCallRecord).toHaveBeenCalledWith('record-1');
   });
 });

@@ -138,12 +138,16 @@ export interface UpdateCallRecordRequest {
 export interface PlatformCallRecord extends CreateCallRecordRequest {
   id: string;
   tenant_id: string;
-  direction: 'web';
+  direction: 'web' | 'inbound' | 'outbound';
   created_at: string;
   recording_status: RecordingStatus;
   recording_mime_type: string | null;
   recording_size_bytes: number | null;
   recording_failure_code: string | null;
+  recording_object_key?: string | null;
+  recording_egress_id?: string | null;
+  caller_number?: string | null;
+  callee_number?: string | null;
   deleted_at?: string | null;
 }
 
@@ -157,7 +161,7 @@ export interface NormalizedCallRecordListItem {
   callId: string;
   assistantName: string;
   attId: string;
-  direction: 'web';
+  direction: 'web' | 'inbound' | 'outbound';
   status: CallRecordStatus;
   startedAt: string;
   durationSec: number;
@@ -649,7 +653,7 @@ function normalizePlatformCallListItem(
     callId: record.id,
     assistantName: serviceName,
     attId: record.customer_service_id,
-    direction: 'web',
+    direction: record.direction,
     status: record.status,
     startedAt: record.started_at,
     durationSec: record.duration_sec,

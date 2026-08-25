@@ -26,6 +26,10 @@ class AppointmentRepository(Protocol):
         self, tenant_id: UUID, call_record_id: UUID
     ) -> Appointment | None: ...
 
+    async def list_occupying(
+        self, tenant_id: UUID, instance_id: UUID
+    ) -> list[Appointment]: ...
+
     async def create(self, appointment: Appointment) -> Appointment: ...
 
     async def save(self, appointment: Appointment) -> Appointment: ...
@@ -69,6 +73,17 @@ class InMemoryAppointmentRepository:
         ]
         matches.sort(key=lambda item: item.created_at)
         return matches[0] if matches else None
+
+    async def list_occupying(
+        self, tenant_id: UUID, instance_id: UUID
+    ) -> list[Appointment]:
+        return [
+            item
+            for (item_tenant_id, _), item in self._items.items()
+            if item_tenant_id == tenant_id
+            and item.voice_agent_instance_id == instance_id
+            and item.status in {"pending", "confirmed"}
+        ]
 
     async def create(self, appointment: Appointment) -> Appointment:
         self._items[(appointment.tenant_id, appointment.id)] = appointment

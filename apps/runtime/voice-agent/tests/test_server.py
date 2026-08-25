@@ -314,6 +314,74 @@ async def test_dispatched_entrypoint_uses_exact_platform_snapshot() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dispatched_sip_session_starts_call_lifecycle() -> None:
+    settings = VoiceSettings.from_env(
+        {
+            "VOICE_PROVIDER_MODE": "pipeline",
+            "DASHSCOPE_API_KEY": "dashscope-test-key",
+            "DASHSCOPE_WEBSOCKET_URL": (
+                "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
+            ),
+            "OPENAI_API_KEY": "openai-test-key",
+        }
+    )
+    runtime = runtime_customer_service()
+    providers = ProviderBundle(
+        mode="pipeline", stt=object(), llm=object(), tts=object()
+    )
+    lifecycle = SimpleNamespace(start_from_dispatch=AsyncMock(), finish=AsyncMock())
+    session = SimpleNamespace(start=AsyncMock(), say=Mock())
+    context = SimpleNamespace(
+        room=SimpleNamespace(name="sip-melbourne-1"),
+        job=SimpleNamespace(
+            metadata=json.dumps(
+                {
+                    "customer_service_id": str(runtime.id),
+                    "tenant_id": str(runtime.tenant_id),
+                    "config_version": runtime.version,
+                    "channel": "sip",
+                    "caller_number": "+61400000001",
+                    "callee_number": "+61400000099",
+                    "provider_call_id": "livekit-sip-1",
+                }
+            )
+        ),
+    )
+
+    with (
+        patch.object(VoiceSettings, "from_env", return_value=settings),
+        patch(
+            "yino_voice_agent.server.httpx.AsyncClient",
+            MagicMock(),
+        ),
+        patch.object(PlatformConfigClient, "get", AsyncMock(return_value=runtime)),
+        patch(
+            "yino_voice_agent.server.build_providers",
+            Mock(return_value=providers),
+        ),
+        patch("yino_voice_agent.server._load_pipeline_vad", return_value=object()),
+        patch("yino_voice_agent.server.create_session", return_value=session),
+        patch(
+            "yino_voice_agent.server.create_customer_service",
+            Mock(return_value=object()),
+        ),
+        patch(
+            "yino_voice_agent.server.CallLifecycleClient",
+            return_value=lifecycle,
+        ) as lifecycle_cls,
+    ):
+        await local_voice_agent(context)
+
+    lifecycle_cls.assert_called_once()
+    lifecycle.start_from_dispatch.assert_awaited_once()
+    metadata = lifecycle.start_from_dispatch.await_args.args[0]
+    assert metadata.channel == "sip"
+    assert lifecycle.start_from_dispatch.await_args.args[1] == "sip-melbourne-1"
+    lifecycle.finish.assert_not_called()
+    session.start.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_malformed_nonempty_dispatch_metadata_fails_before_providers() -> None:
     settings = VoiceSettings.from_env(
         {

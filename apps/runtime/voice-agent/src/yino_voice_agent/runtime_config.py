@@ -23,6 +23,11 @@ class DispatchMetadata:
     customer_service_id: UUID
     tenant_id: UUID
     config_version: int
+    channel: str = "web"
+    caller_number: str | None = None
+    callee_number: str | None = None
+    provider_call_id: str | None = None
+    sip_trunk_id: str | None = None
 
     @classmethod
     def from_json(cls, raw: str) -> DispatchMetadata:
@@ -39,6 +44,13 @@ class DispatchMetadata:
             value,
             {"customer_service_id", "tenant_id", "config_version"},
             "Dispatch metadata",
+            optional_keys={
+                "channel",
+                "caller_number",
+                "callee_number",
+                "provider_call_id",
+                "sip_trunk_id",
+            },
         )
         return cls(
             customer_service_id=_uuid(
@@ -46,6 +58,13 @@ class DispatchMetadata:
             ),
             tenant_id=_uuid(data["tenant_id"], "tenant ID"),
             config_version=_positive_int(data["config_version"], "config version"),
+            channel=_dispatch_channel(data.get("channel")),
+            caller_number=_optional_e164(data.get("caller_number"), "caller number"),
+            callee_number=_optional_e164(data.get("callee_number"), "callee number"),
+            provider_call_id=_optional_token(
+                data.get("provider_call_id"), "provider call ID"
+            ),
+            sip_trunk_id=_optional_token(data.get("sip_trunk_id"), "SIP trunk ID"),
         )
 
 
@@ -300,6 +319,33 @@ def _mapping_with_exact_keys(
             f"{name} must contain exactly the expected keys"
         )
     return value
+
+
+_E164 = re.compile(r"^\+[1-9]\d{7,14}$")
+
+
+def _dispatch_channel(value: object) -> str:
+    if value is None:
+        return "web"
+    if value not in {"web", "sip"}:
+        raise RuntimeConfigurationError("channel must be web or sip")
+    return str(value)
+
+
+def _optional_e164(value: object, name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or _E164.fullmatch(value) is None:
+        raise RuntimeConfigurationError(f"{name} must be an E.164 number")
+    return value
+
+
+def _optional_token(value: object, name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeConfigurationError(f"{name} must be a non-empty string")
+    return value.strip()
 
 
 def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

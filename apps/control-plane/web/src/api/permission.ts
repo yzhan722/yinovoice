@@ -1,8 +1,8 @@
 import { useUserStore } from '@/store';
 
 /**
- * Phase-1 Demo menus: keep product modules visible, no real telephony.
- * Call History stays as an integration slot (see docs/CALL_INTEGRATION.md).
+ * Demo tenant menus. Telephony and scheduling are live Platform API pages;
+ * identity is still X-Tenant-ID (no login/RBAC).
  */
 export function getMenuList(role?: 'admin' | 'user') {
   const userStore = useUserStore();
@@ -173,6 +173,48 @@ export function getMenuList(role?: 'admin' | 'user') {
             title: { zh_CN: '通话详情', en_US: 'Call Detail' },
             hideInMenu: true,
           },
+        },
+      ],
+    });
+
+    menuList.push({
+      path: '/user/telephony',
+      component: 'LAYOUT',
+      redirect: '/user/telephony/index',
+      name: 'UserTelephony',
+      meta: {
+        single: true,
+        title: { zh_CN: '电话号码', en_US: 'Phone Numbers' },
+        icon: 'call-1',
+        orderNo: 7,
+      },
+      children: [
+        {
+          path: 'index',
+          name: 'UserTelephonyIndex',
+          component: 'user/telephony/index',
+          meta: { title: { zh_CN: '电话号码', en_US: 'Phone Numbers' } },
+        },
+      ],
+    });
+
+    menuList.push({
+      path: '/user/scheduling',
+      component: 'LAYOUT',
+      redirect: '/user/scheduling/index',
+      name: 'UserScheduling',
+      meta: {
+        single: true,
+        title: { zh_CN: '排期设置', en_US: 'Scheduling' },
+        icon: 'time',
+        orderNo: 8,
+      },
+      children: [
+        {
+          path: 'index',
+          name: 'UserSchedulingIndex',
+          component: 'user/scheduling/index',
+          meta: { title: { zh_CN: '排期设置', en_US: 'Scheduling' } },
         },
       ],
     });

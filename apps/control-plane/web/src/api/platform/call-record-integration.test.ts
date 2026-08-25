@@ -66,6 +66,17 @@ describe('realtime voice and record menus', () => {
     expect(realtime.children[0].component).toBe('user/realtime-voice/index');
   });
 
+  it('exposes tenant telephony and scheduling pages', async () => {
+    const { list } = await getMenuList('user') as any;
+    const telephony = list.find((menu: any) => menu.path === '/user/telephony');
+    const scheduling = list.find((menu: any) => menu.path === '/user/scheduling');
+
+    expect(telephony.meta.title).toEqual({ zh_CN: '电话号码', en_US: 'Phone Numbers' });
+    expect(scheduling.meta.title).toEqual({ zh_CN: '排期设置', en_US: 'Scheduling' });
+    expect(telephony.children[0].component).toBe('user/telephony/index');
+    expect(scheduling.children[0].component).toBe('user/scheduling/index');
+  });
+
   it('makes demo-tenant call records routable for operator users', async () => {
     const { list } = await getMenuList('admin') as any;
     const records = list.find((menu: any) => menu.path === '/admin/call-history');

@@ -1,5 +1,21 @@
 # TASKS
 
+## 商业 MVP 入站电话闭环（2026-08-25）
+
+- [x] M1：E.164 号码映射、lookup、SIP dry-run 生成器
+- [x] M2：通话会话 start/messages/finish（`in_progress`）
+- [x] M3：内建单资源排期 + availability；停止编造预约时段
+- [x] M4：Tool Invocation API + 幂等写
+- [x] M5：Runtime 通话中 `[[tool:...]]` 旁路
+- [x] M6：SIP 录音对象键 + Fake Egress（无真实 LiveKit Egress 客户端）
+- [x] M7：通知设置 + SMTP（配齐 host+from 走 smtplib；测试用 Fake sink）
+- [x] M8：TDesign 电话/排期页、通话抽屉 Tool 记录、Dashboard 真实 KPI；排期页可保存通知邮箱
+- [x] M9：`.env.example`、合成冒烟、手工 A–E 清单、治理文档对齐
+- [x] 挂断抽取按诊所时区解析时段；无排期/无匹配项目/档期不可用则写回拨，不写假预约
+- [ ] 真实 PSTN / LiveKit SIP trunk（**已搁置**：先完成网页与后处理闭环；国内 +86 不能靠 Twilio）
+- [ ] 真实 LiveKit Egress → S3
+- [ ] 生产多租户登录与 RBAC（替换 Demo `X-Tenant-ID`）
+
 ## Voice Agent Instance 产品化
 
 - [x] A1：租户实例列表 API、真实 UUID 选择、助手列表/实时通话/知识库配置接入
@@ -37,7 +53,7 @@
 
 ## 中期
 
-- [ ] C 后续：真实预约系统（指定医生、项目时长、档期冲突判断）
-- [ ] SIP / 电话通道  
+- [ ] C 后续：多医生 / HIS 对接（当前商业 MVP 为单资源内建排期）
+- [ ] SIP / 电话通道：生产 PSTN 与真实 Egress（**暂缓**；代码映射与 Fake Egress 已在，不阻塞网页预约/回拨闭环）  
 - [ ] 生产多租户与 RBAC（替换 Demo `X-Tenant-ID`）  
 - [ ] 按需纳入 archive 原型（单独确认）  

@@ -25,6 +25,11 @@ def _to_domain(row: CallRecordRow) -> CallRecord:
         ended_at=row.ended_at,
         duration_sec=row.duration_sec,
         direction=row.direction,  # type: ignore[arg-type]
+        caller_number=row.caller_number,
+        callee_number=row.callee_number,
+        provider_call_id=row.provider_call_id,
+        connected_at=row.connected_at,
+        ended_reason=row.ended_reason,  # type: ignore[arg-type]
         messages=[
             TranscriptMessage(
                 role=message.role,  # type: ignore[arg-type]
@@ -38,6 +43,8 @@ def _to_domain(row: CallRecordRow) -> CallRecord:
         recording_mime_type=row.recording_mime_type,
         recording_size_bytes=row.recording_size_bytes,
         recording_failure_code=row.recording_failure_code,
+        recording_egress_id=row.recording_egress_id,
+        recording_object_key=row.recording_object_key,
         deleted_at=row.deleted_at,
     )
 
@@ -67,11 +74,18 @@ class PostgresCallRecordRepository:
                     started_at=record.started_at,
                     ended_at=record.ended_at,
                     duration_sec=record.duration_sec,
+                    caller_number=record.caller_number,
+                    callee_number=record.callee_number,
+                    provider_call_id=record.provider_call_id,
+                    connected_at=record.connected_at,
+                    ended_reason=record.ended_reason,
                     created_at=record.created_at,
                     recording_status=record.recording_status,
                     recording_mime_type=record.recording_mime_type,
                     recording_size_bytes=record.recording_size_bytes,
                     recording_failure_code=record.recording_failure_code,
+                    recording_egress_id=record.recording_egress_id,
+                    recording_object_key=record.recording_object_key,
                     deleted_at=record.deleted_at,
                 )
                 session.add(row)
@@ -83,10 +97,17 @@ class PostgresCallRecordRepository:
                 row.started_at = record.started_at
                 row.ended_at = record.ended_at
                 row.duration_sec = record.duration_sec
+                row.caller_number = record.caller_number
+                row.callee_number = record.callee_number
+                row.provider_call_id = record.provider_call_id
+                row.connected_at = record.connected_at
+                row.ended_reason = record.ended_reason
                 row.recording_status = record.recording_status
                 row.recording_mime_type = record.recording_mime_type
                 row.recording_size_bytes = record.recording_size_bytes
                 row.recording_failure_code = record.recording_failure_code
+                row.recording_egress_id = record.recording_egress_id
+                row.recording_object_key = record.recording_object_key
                 row.deleted_at = record.deleted_at
 
             await session.execute(
@@ -223,3 +244,40 @@ class PostgresCallRecordRepository:
                 .limit(1)
             )
             return found is not None
+
+    async def find_by_provider_call_id(
+        self,
+        tenant_id: UUID,
+        provider_call_id: str,
+    ) -> CallRecord | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(CallRecordRow)
+                .where(
+                    CallRecordRow.tenant_id == tenant_id,
+                    CallRecordRow.provider_call_id == provider_call_id,
+                    CallRecordRow.deleted_at.is_(None),
+                )
+                .options(selectinload(CallRecordRow.messages))
+                .order_by(CallRecordRow.created_at.desc())
+                .limit(1)
+            )
+            return _to_domain(row) if row is not None else None
+
+    async def find_in_progress_by_room_name(
+        self,
+        tenant_id: UUID,
+        room_name: str,
+    ) -> CallRecord | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(CallRecordRow)
+                .where(
+                    CallRecordRow.tenant_id == tenant_id,
+                    CallRecordRow.room_name == room_name,
+                    CallRecordRow.status == "in_progress",
+                    CallRecordRow.deleted_at.is_(None),
+                )
+                .options(selectinload(CallRecordRow.messages))
+            )
+            return _to_domain(row) if row is not None else None

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKeyConstraint,
     Index,
@@ -148,7 +150,7 @@ class CallRecordRow(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "id", name="call_records_tenant_id_uidx"),
         CheckConstraint(
-            "status IN ('completed', 'interrupted', 'failed')",
+            "status IN ('in_progress', 'completed', 'interrupted', 'failed')",
             name="call_records_status_check",
         ),
         CheckConstraint(
@@ -168,8 +170,18 @@ class CallRecordRow(Base):
             name="call_records_recording_size_bytes_check",
         ),
         CheckConstraint(
-            "ended_at >= started_at",
+            "("
+            "status = 'in_progress' AND ended_at IS NULL AND duration_sec IS NULL"
+            ") OR ("
+            "status <> 'in_progress' AND ended_at IS NOT NULL "
+            "AND duration_sec IS NOT NULL AND ended_at >= started_at"
+            ")",
             name="call_records_ended_at_check",
+        ),
+        CheckConstraint(
+            "ended_reason IS NULL OR ended_reason IN "
+            "('completed', 'user_hangup', 'agent_error')",
+            name="call_records_ended_reason_check",
         ),
         ForeignKeyConstraint(
             ["tenant_id", "voice_agent_instance_id"],
@@ -181,6 +193,24 @@ class CallRecordRow(Base):
             "tenant_id",
             "created_at",
             "id",
+        ),
+        Index(
+            "call_records_tenant_provider_call_uidx",
+            "tenant_id",
+            "provider_call_id",
+            unique=True,
+            postgresql_where=text(
+                "provider_call_id IS NOT NULL AND deleted_at IS NULL"
+            ),
+        ),
+        Index(
+            "call_records_tenant_room_in_progress_uidx",
+            "tenant_id",
+            "room_name",
+            unique=True,
+            postgresql_where=text(
+                "status = 'in_progress' AND deleted_at IS NULL"
+            ),
         ),
     )
 
@@ -197,16 +227,25 @@ class CallRecordRow(Base):
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
-    ended_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
-    duration_sec: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    caller_number: Mapped[str | None] = mapped_column(Text, nullable=True)
+    callee_number: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider_call_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ended_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     recording_status: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'none'")
     )
     recording_mime_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     recording_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     recording_failure_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recording_egress_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recording_object_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -283,6 +322,11 @@ class AppointmentRow(Base):
         ),
         Index("appointments_tenant_slot_idx", "tenant_id", "slot_start"),
         Index("appointments_tenant_status_idx", "tenant_id", "status"),
+        ForeignKeyConstraint(
+            ["tenant_id", "service_offering_id"],
+            ["service_offerings.tenant_id", "service_offerings.id"],
+            name="appointments_offering_fkey",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
@@ -291,6 +335,9 @@ class AppointmentRow(Base):
         PGUUID(as_uuid=True), nullable=True
     )
     call_record_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), nullable=True
+    )
+    service_offering_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), nullable=True
     )
     patient_name: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -363,5 +410,299 @@ class CallbackTaskRow(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class PhoneNumberRow(Base):
+    __tablename__ = "phone_numbers"
+    __table_args__ = (
+        UniqueConstraint("e164_number", name="phone_numbers_e164_uidx"),
+        UniqueConstraint("tenant_id", "id", name="phone_numbers_tenant_id_uidx"),
+        CheckConstraint(
+            "provider = 'livekit_sip'",
+            name="phone_numbers_provider_check",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "voice_agent_instance_id"],
+            ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
+            name="phone_numbers_instance_fkey",
+        ),
+        Index("phone_numbers_tenant_created_idx", "tenant_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    voice_agent_instance_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), nullable=False
+    )
+    e164_number: Mapped[str] = mapped_column(String(16), nullable=False)
+    provider: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'livekit_sip'")
+    )
+    inbound_trunk_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dispatch_rule_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ServiceOfferingRow(Base):
+    __tablename__ = "service_offerings"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="service_offerings_tenant_id_uidx"),
+        CheckConstraint(
+            "duration_minutes BETWEEN 5 AND 480",
+            name="service_offerings_duration_check",
+        ),
+        CheckConstraint(
+            "buffer_minutes BETWEEN 0 AND 120",
+            name="service_offerings_buffer_check",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "voice_agent_instance_id"],
+            ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
+            name="service_offerings_instance_fkey",
+        ),
+        Index(
+            "service_offerings_tenant_instance_idx",
+            "tenant_id",
+            "voice_agent_instance_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    voice_agent_instance_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("''")
+    )
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    buffer_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class SchedulingProfileRow(Base):
+    __tablename__ = "scheduling_profiles"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "tenant_id",
+            "voice_agent_instance_id",
+            name="scheduling_profiles_pkey",
+        ),
+        CheckConstraint(
+            "slot_interval_minutes BETWEEN 5 AND 60",
+            name="scheduling_profiles_interval_check",
+        ),
+        CheckConstraint(
+            "minimum_notice_minutes BETWEEN 0 AND 10080",
+            name="scheduling_profiles_notice_check",
+        ),
+        CheckConstraint(
+            "booking_horizon_days BETWEEN 1 AND 365",
+            name="scheduling_profiles_horizon_check",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "voice_agent_instance_id"],
+            ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
+            name="scheduling_profiles_instance_fkey",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    voice_agent_instance_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), nullable=False
+    )
+    timezone: Mapped[str] = mapped_column(Text, nullable=False)
+    slot_interval_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("15")
+    )
+    minimum_notice_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("60")
+    )
+    booking_horizon_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("60")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BusinessHoursRow(Base):
+    __tablename__ = "business_hours"
+    __table_args__ = (
+        CheckConstraint(
+            "weekday BETWEEN 0 AND 6",
+            name="business_hours_weekday_check",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "voice_agent_instance_id"],
+            ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
+            name="business_hours_instance_fkey",
+        ),
+        Index(
+            "business_hours_tenant_instance_idx",
+            "tenant_id",
+            "voice_agent_instance_id",
+            "weekday",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    voice_agent_instance_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), nullable=False
+    )
+    weekday: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_local: Mapped[str] = mapped_column(String(5), nullable=False)
+    end_local: Mapped[str] = mapped_column(String(5), nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+
+
+class ScheduleExceptionRow(Base):
+    __tablename__ = "schedule_exceptions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "id", name="schedule_exceptions_tenant_id_uidx"
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "voice_agent_instance_id"],
+            ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
+            name="schedule_exceptions_instance_fkey",
+        ),
+        Index(
+            "schedule_exceptions_tenant_instance_date_idx",
+            "tenant_id",
+            "voice_agent_instance_id",
+            "date_local",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    voice_agent_instance_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), nullable=False
+    )
+    date_local: Mapped[date] = mapped_column(Date, nullable=False)
+    closed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    start_local: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    end_local: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    reason: Mapped[str] = mapped_column(
+        String(200), nullable=False, server_default=text("''")
+    )
+
+
+class ToolInvocationRow(Base):
+    __tablename__ = "tool_invocations"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id", name="tool_invocations_tenant_id_uidx"),
+        UniqueConstraint(
+            "tenant_id",
+            "idempotency_key",
+            name="tool_invocations_tenant_idempotency_uidx",
+        ),
+        CheckConstraint(
+            "tool_name IN ('check_availability', 'create_appointment', 'create_callback')",
+            name="tool_invocations_tool_name_check",
+        ),
+        CheckConstraint(
+            "status IN ('ok', 'error', 'skipped')",
+            name="tool_invocations_status_check",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "voice_agent_instance_id"],
+            ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
+            name="tool_invocations_instance_fkey",
+        ),
+        Index(
+            "tool_invocations_tenant_session_idx",
+            "tenant_id",
+            "session_id",
+        ),
+        Index(
+            "tool_invocations_tenant_call_record_idx",
+            "tenant_id",
+            "call_record_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    session_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    call_record_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), nullable=True
+    )
+    voice_agent_instance_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), nullable=True
+    )
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    arguments_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class NotificationSettingsRow(Base):
+    __tablename__ = "notification_settings"
+
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    email: Mapped[str] = mapped_column(
+        String(200), nullable=False, server_default=text("''")
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class NotificationEventRow(Base):
+    __tablename__ = "notification_events"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('sent', 'failed')",
+            name="notification_events_status_check",
+        ),
+        Index(
+            "notification_events_tenant_created_idx",
+            "tenant_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    target: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

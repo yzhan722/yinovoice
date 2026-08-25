@@ -66,6 +66,14 @@
         <t-icon name="call" />
         <span>回拨任务</span>
       </button>
+      <button type="button" class="quick" @click="go('/user/telephony')">
+        <t-icon name="call-1" />
+        <span>电话号码</span>
+      </button>
+      <button type="button" class="quick" @click="go('/user/scheduling')">
+        <t-icon name="time" />
+        <span>排期设置</span>
+      </button>
     </section>
 
     <div class="board">
@@ -131,7 +139,7 @@
               <strong>{{ summary.callbacks.open }}</strong>
             </li>
             <li>
-              <span>今日通话（演示）</span>
+              <span>今日通话</span>
               <strong>{{ callStats.todayCount || '—' }}</strong>
             </li>
           </ul>
@@ -142,7 +150,7 @@
     <section class="card chart-card">
       <div class="card-head">
         <h2>近 7 日通话量</h2>
-        <span class="muted">演示数据</span>
+        <span class="muted">近 7 日</span>
       </div>
       <EchartsChart :option="trendOption" height="220px" />
     </section>
@@ -209,32 +217,27 @@ const followUps = ref<any[]>([]);
 
 const connectRate = computed(() => {
   const t = callStats.todayCount || 0;
-  if (!t) return 72;
+  if (!t) return 0;
   return Math.min(100, Math.round((callStats.connectedToday / t) * 100));
 });
 
 const overallProgress = computed(() => {
   const total =
-    summary.followUps.todo + summary.followUps.doing + summary.followUps.done || 1;
-  return Math.min(100, Math.round((summary.followUps.done / total) * 100) || 72);
+    summary.followUps.todo + summary.followUps.doing + summary.followUps.done;
+  if (!total) return 0;
+  return Math.min(100, Math.round((summary.followUps.done / total) * 100));
 });
 
-const scheduleItems = computed(() => {
-  const fromFollow = followUps.value.slice(0, 4).map((f, i) => ({
+const scheduleItems = computed(() => (
+  followUps.value.slice(0, 4).map((f, i) => ({
     id: f.id,
     time: ['09:00', '11:30', '14:00', '16:30'][i] || '10:00',
     tag: ({ todo: '待办', doing: '进行中', done: '完成' } as any)[f.status] || '事项',
     title: f.title,
     sub: '跟进事项',
     live: f.status === 'doing',
-  }));
-  if (fromFollow.length) return fromFollow;
-  return [
-    { id: 1, time: '09:30', tag: '预约', title: '种植咨询确认', sub: '待工作人员确认档期', live: true },
-    { id: 2, time: '11:00', tag: '回拨', title: '未接通回访', sub: '来电客户待回拨', live: false },
-    { id: 3, time: '15:00', tag: '巡检', title: '语音接待巡检', sub: '实例运行检查', live: false },
-  ];
-});
+  }))
+));
 
 const mobileCourses = computed(() => [
   {

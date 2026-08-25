@@ -173,13 +173,31 @@ export class TenantAppointmentService {
 }
 
 export class TenantHomeService {
-  summary() {
-    if (!shellMockEnabled()) return Promise.reject(new Error('首页汇总 API 未对接'));
-    return getHomeSummary();
+  async summary() {
+    try {
+      return await platformRequest('/api/v1/dashboard/summary');
+    } catch (error) {
+      if (shellMockEnabled()) return getHomeSummary();
+      throw error;
+    }
   }
-  followUps(param = {}) {
-    if (!shellMockEnabled()) return Promise.reject(new Error('跟进事项 API 未对接'));
-    return listFollowUps(param);
+  async followUps(param = {}) {
+    try {
+      const page = await new TenantCallbackService().list({
+        status: 'open',
+        limit: param.limit ?? 20,
+      });
+      return {
+        list: (page.list || []).map((item) => ({
+          id: item.id,
+          title: item.reason,
+          status: item.status === 'open' ? 'todo' : item.status === 'done' ? 'done' : 'doing',
+        })),
+      };
+    } catch (error) {
+      if (shellMockEnabled()) return listFollowUps(param);
+      return { list: [] };
+    }
   }
   updateFollowUp(id, status) {
     if (!shellMockEnabled()) return Promise.reject(new Error('跟进事项 API 未对接'));
@@ -189,18 +207,117 @@ export class TenantHomeService {
     if (!shellMockEnabled()) return Promise.reject(new Error('动态 API 未对接'));
     return listActivities();
   }
-  callStats() {
-    if (!shellMockEnabled()) return Promise.reject(new Error('通话统计 API 未对接'));
-    return getCallStats();
+  async callStats() {
+    try {
+      const summary = await this.summary();
+      return summary.callStats || getCallStats();
+    } catch (error) {
+      if (shellMockEnabled()) return getCallStats();
+      throw error;
+    }
   }
   appointmentsToday() {
-    // Prefer live appointments API when available.
     return new TenantAppointmentService().list().catch(() => {
       if (!shellMockEnabled()) {
         return Promise.reject(new Error('Appointment API is not connected'));
       }
       return listMockAppointments();
     });
+  }
+}
+
+export class TenantPhoneNumberService {
+  async list() {
+    const page = await platformRequest('/api/v1/phone-numbers');
+    return page.items || page || [];
+  }
+  async create(input) {
+    return platformRequest('/api/v1/phone-numbers', {
+      method: 'POST',
+      body: JSON.stringify({
+        e164_number: input.e164Number,
+        voice_agent_instance_id: input.instanceId,
+      }),
+    });
+  }
+  async remove(id) {
+    await platformRequest(`/api/v1/phone-numbers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+}
+
+export class TenantSchedulingService {
+  listOfferings(instanceId) {
+    const qs = new URLSearchParams({ voice_agent_instance_id: instanceId });
+    return platformRequest(`/api/v1/service-offerings?${qs.toString()}`);
+  }
+  createOffering(input) {
+    return platformRequest('/api/v1/service-offerings', {
+      method: 'POST',
+      body: JSON.stringify({
+        voice_agent_instance_id: input.instanceId,
+        name: input.name,
+        duration_minutes: Number(input.durationMinutes || 30),
+        buffer_minutes: Number(input.bufferMinutes || 0),
+      }),
+    });
+  }
+  putProfile(instanceId, input) {
+    return platformRequest(`/api/v1/scheduling-profiles/${encodeURIComponent(instanceId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        timezone: input.timezone,
+        slot_interval_minutes: Number(input.slotIntervalMinutes || 15),
+        minimum_notice_minutes: Number(input.minimumNoticeMinutes || 60),
+        booking_horizon_days: Number(input.bookingHorizonDays || 60),
+      }),
+    });
+  }
+  getProfile(instanceId) {
+    return platformRequest(`/api/v1/scheduling-profiles/${encodeURIComponent(instanceId)}`);
+  }
+  listHours(instanceId) {
+    const qs = new URLSearchParams({ voice_agent_instance_id: instanceId });
+    return platformRequest(`/api/v1/business-hours?${qs.toString()}`);
+  }
+  putHours(instanceId, hours) {
+    const qs = new URLSearchParams({ voice_agent_instance_id: instanceId });
+    return platformRequest(`/api/v1/business-hours?${qs.toString()}`, {
+      method: 'PUT',
+      body: JSON.stringify(hours),
+    });
+  }
+  listAvailability(params) {
+    const qs = new URLSearchParams({
+      voice_agent_instance_id: params.instanceId,
+      service_offering_id: params.offeringId,
+      date_from: params.dateFrom,
+      date_to: params.dateTo,
+    });
+    return platformRequest(`/api/v1/availability?${qs.toString()}`);
+  }
+}
+
+export class TenantNotificationService {
+  get() {
+    return platformRequest('/api/v1/notification-settings');
+  }
+  put(input) {
+    return platformRequest('/api/v1/notification-settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        email: input.email || '',
+        enabled: Boolean(input.enabled),
+      }),
+    });
+  }
+}
+
+export class TenantToolInvocationService {
+  listByCallRecord(callRecordId) {
+    const qs = new URLSearchParams({ call_record_id: callRecordId });
+    return platformRequest(`/api/v1/tool-invocations?${qs.toString()}`);
   }
 }
 

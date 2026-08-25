@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ import httpx
 from dotenv import load_dotenv
 from livekit.agents import AgentServer, JobContext, cli
 
+from .call_lifecycle import CallLifecycleClient
 from .config import VoiceSettings
 from .customer_service import create_customer_service
 from .providers import ProviderBundle, build_providers
@@ -21,6 +23,8 @@ from .runtime_config import (
     RuntimeCustomerService,
 )
 from .session import create_session
+from .tool_client import ToolInvocationClient
+from .tool_orchestrator import ToolOrchestrator
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,13 +93,20 @@ server = AgentServer()
 LIVEKIT_AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "yino-customer-service")
 
 
+def _room_name(ctx: JobContext) -> str:
+    name = getattr(ctx.room, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return "unknown-room"
+
+
 @server.rtc_session(agent_name=LIVEKIT_AGENT_NAME)
 async def local_voice_agent(ctx: JobContext) -> None:
     """Run one local or RTC-backed voice-agent session."""
 
     raw_metadata = ctx.job.metadata
     if raw_metadata.strip():
-        DispatchMetadata.from_json(raw_metadata)
+        metadata = DispatchMetadata.from_json(raw_metadata)
         settings = VoiceSettings.from_env()
         async with httpx.AsyncClient(
             base_url=settings.platform_api_url,
@@ -106,15 +117,31 @@ async def local_voice_agent(ctx: JobContext) -> None:
                 settings=settings,
                 config_client=PlatformConfigClient(http_client),
             )
-    else:
-        settings = VoiceSettings.from_env()
-        if not settings.allow_empty_dispatch_metadata_local_dev:
-            raise RuntimeConfigurationError(
-                "RTC jobs with empty dispatch metadata are disabled; "
-                "explicit local development opt-in is required"
+            await _speak_with_optional_lifecycle(
+                ctx,
+                runtime,
+                metadata=metadata,
+                http_client=http_client,
             )
-        runtime = create_console_runtime(settings_loader=lambda: settings)
+        return
 
+    settings = VoiceSettings.from_env()
+    if not settings.allow_empty_dispatch_metadata_local_dev:
+        raise RuntimeConfigurationError(
+            "RTC jobs with empty dispatch metadata are disabled; "
+            "explicit local development opt-in is required"
+        )
+    runtime = create_console_runtime(settings_loader=lambda: settings)
+    await _speak_with_optional_lifecycle(ctx, runtime)
+
+
+async def _speak_with_optional_lifecycle(
+    ctx: JobContext,
+    runtime: RuntimeDependencies,
+    *,
+    metadata: DispatchMetadata | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> None:
     customer_service = runtime.customer_service
     if customer_service is None:
         agent = create_customer_service()
@@ -134,16 +161,78 @@ async def local_voice_agent(ctx: JobContext) -> None:
         )
         greeting = customer_service.greeting
 
+    lifecycle: CallLifecycleClient | None = None
+    orchestrator: ToolOrchestrator | None = None
+    if metadata is not None and http_client is not None:
+        lifecycle = CallLifecycleClient(http_client, metadata.tenant_id)
+        await lifecycle.start_from_dispatch(metadata, _room_name(ctx))
+        orchestrator = ToolOrchestrator(
+            tools=ToolInvocationClient(http_client, metadata.tenant_id),
+            lifecycle=lifecycle,
+            session_id=_room_name(ctx),
+            voice_agent_instance_id=metadata.customer_service_id,
+        )
+
     session = create_session(runtime.providers, runtime.vad)
-    await session.start(
-        room=ctx.room,
-        agent=agent,
-    )
-    session.say(
-        greeting,
-        allow_interruptions=True,
-        add_to_chat_ctx=False,
-    )
+    if orchestrator is not None:
+        _bind_orchestrator(session, orchestrator)
+    try:
+        await session.start(
+            room=ctx.room,
+            agent=agent,
+        )
+        session.say(
+            greeting,
+            allow_interruptions=True,
+            add_to_chat_ctx=False,
+        )
+    except Exception:
+        if lifecycle is not None:
+            await lifecycle.finish(
+                status="failed",
+                ended_reason="agent_error",
+            )
+        raise
+
+
+def _chat_text(item: object) -> str:
+    text = getattr(item, "text_content", None)
+    if isinstance(text, str) and text.strip():
+        return text
+    content = getattr(item, "content", None)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+        return "".join(parts)
+    return ""
+
+
+def _bind_orchestrator(session: object, orchestrator: ToolOrchestrator) -> None:
+    on = getattr(session, "on", None)
+    if not callable(on):
+        return
+
+    def _on_user(event: object) -> None:
+        if not getattr(event, "is_final", False):
+            return
+        transcript = getattr(event, "transcript", "")
+        if isinstance(transcript, str) and transcript.strip():
+            asyncio.create_task(orchestrator.handle_user_final(transcript))
+
+    def _on_item(event: object) -> None:
+        item = getattr(event, "item", None)
+        if getattr(item, "role", None) != "assistant":
+            return
+        text = _chat_text(item)
+        if text.strip():
+            asyncio.create_task(orchestrator.handle_assistant_final(text))
+
+    on("user_input_transcribed", _on_user)
+    on("conversation_item_added", _on_item)
 
 
 if __name__ == "__main__":

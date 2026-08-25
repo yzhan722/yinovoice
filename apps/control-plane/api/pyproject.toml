@@ -15,6 +15,7 @@ dependencies = [
   "sqlalchemy[asyncio]>=2.0,<3",
   "asyncpg>=0.30,<1",
   "alembic>=1.14,<2",
+  "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
@@ -44,3 +45,5 @@ select = ["E", "F", "W", "I", "N", "B", "UP", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/yino_platform_api/domain/customer_service.py" = ["RUF001"]
+"src/yino_platform_api/services/intent_extract.py" = ["RUF001"]
+"tests/test_intent_extract.py" = ["RUF001"]
