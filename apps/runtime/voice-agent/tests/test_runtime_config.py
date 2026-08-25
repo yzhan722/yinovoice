@@ -212,6 +212,31 @@ async def test_client_accepts_snapshot_with_null_deleted_at() -> None:
 
 
 @pytest.mark.asyncio
+async def test_client_accepts_snapshot_with_insights_profile() -> None:
+    service_id = uuid4()
+    tenant_id = uuid4()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        snapshot = published_snapshot(
+            service_id=service_id,
+            tenant_id=tenant_id,
+            version=2,
+        )
+        snapshot["insights_profile"] = "demo-clinic"
+        return httpx.Response(200, json=snapshot)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://platform.test",
+    ) as http_client:
+        result = await PlatformConfigClient(http_client).get(
+            DispatchMetadata(service_id, tenant_id, 2)
+        )
+
+    assert result.id == service_id
+
+
+@pytest.mark.asyncio
 async def test_client_rejects_soft_deleted_snapshot() -> None:
     service_id = uuid4()
     tenant_id = uuid4()

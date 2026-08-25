@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -377,8 +378,95 @@ async def test_dispatched_sip_session_starts_call_lifecycle() -> None:
     metadata = lifecycle.start_from_dispatch.await_args.args[0]
     assert metadata.channel == "sip"
     assert lifecycle.start_from_dispatch.await_args.args[1] == "sip-melbourne-1"
-    lifecycle.finish.assert_not_called()
+    lifecycle.finish.assert_awaited_once_with(
+        status="completed",
+        ended_reason="completed",
+    )
     session.start.assert_awaited_once()
+
+
+class _ClosableSession:
+    def __init__(self) -> None:
+        self.start = AsyncMock()
+        self.say = Mock()
+        self._close_handler: object | None = None
+
+    def on(self, event: str, handler: object) -> None:
+        if event == "close":
+            self._close_handler = handler
+
+    def emit_close(self, *, reason_name: str, error: object | None = None) -> None:
+        assert callable(self._close_handler)
+        self._close_handler(
+            SimpleNamespace(
+                reason=SimpleNamespace(name=reason_name),
+                error=error,
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_dispatched_session_finishes_after_close_not_at_start() -> None:
+    settings = VoiceSettings.from_env(
+        {
+            "VOICE_PROVIDER_MODE": "pipeline",
+            "DASHSCOPE_API_KEY": "dashscope-test-key",
+            "DASHSCOPE_WEBSOCKET_URL": (
+                "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
+            ),
+            "OPENAI_API_KEY": "openai-test-key",
+        }
+    )
+    runtime = runtime_customer_service()
+    providers = ProviderBundle(
+        mode="pipeline", stt=object(), llm=object(), tts=object()
+    )
+    lifecycle = SimpleNamespace(start_from_dispatch=AsyncMock(), finish=AsyncMock())
+    session = _ClosableSession()
+    context = SimpleNamespace(
+        room=SimpleNamespace(name="sip-melbourne-2"),
+        job=SimpleNamespace(
+            metadata=json.dumps(
+                {
+                    "customer_service_id": str(runtime.id),
+                    "tenant_id": str(runtime.tenant_id),
+                    "config_version": runtime.version,
+                    "channel": "sip",
+                    "caller_number": "+61400000001",
+                    "callee_number": "+61400000099",
+                    "provider_call_id": "livekit-sip-2",
+                }
+            )
+        ),
+    )
+
+    with (
+        patch.object(VoiceSettings, "from_env", return_value=settings),
+        patch("yino_voice_agent.server.httpx.AsyncClient", MagicMock()),
+        patch.object(PlatformConfigClient, "get", AsyncMock(return_value=runtime)),
+        patch("yino_voice_agent.server.build_providers", Mock(return_value=providers)),
+        patch("yino_voice_agent.server._load_pipeline_vad", return_value=object()),
+        patch("yino_voice_agent.server.create_session", return_value=session),
+        patch(
+            "yino_voice_agent.server.create_customer_service",
+            Mock(return_value=object()),
+        ),
+        patch("yino_voice_agent.server.CallLifecycleClient", return_value=lifecycle),
+    ):
+        task = asyncio.create_task(local_voice_agent(context))
+        for _ in range(50):
+            if session._close_handler is not None or task.done():
+                break
+            await asyncio.sleep(0)
+        lifecycle.finish.assert_not_called()
+        if session._close_handler is not None:
+            session.emit_close(reason_name="PARTICIPANT_DISCONNECTED")
+        await asyncio.wait_for(task, timeout=1)
+
+    lifecycle.finish.assert_awaited_once_with(
+        status="completed",
+        ended_reason="user_hangup",
+    )
 
 
 @pytest.mark.asyncio

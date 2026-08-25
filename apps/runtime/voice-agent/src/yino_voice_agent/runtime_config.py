@@ -227,7 +227,7 @@ class RuntimeCustomerService:
                 "primary_language",
             },
             "Customer service snapshot",
-            optional_keys={"deleted_at"},
+            optional_keys={"deleted_at", "insights_profile"},
         )
         # Platform A3 soft-delete: active snapshots omit the field or send null.
         if data.get("deleted_at") is not None:

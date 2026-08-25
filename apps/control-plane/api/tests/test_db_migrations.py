@@ -69,6 +69,9 @@ async def test_upgrade_and_seed_demo_tenant() -> None:
                 "voice_agent_instances",
                 "call_records",
                 "call_messages",
+                "insights_dispatch_jobs",
+                "instance_config_revisions",
+                "knowledge_documents",
             ):
                 exists = await session.scalar(
                     text("SELECT to_regclass(:name)").bindparams(

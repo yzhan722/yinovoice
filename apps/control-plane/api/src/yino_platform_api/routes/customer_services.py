@@ -10,6 +10,10 @@ from ..domain.customer_service import (
     CustomerServiceUpdate,
 )
 from ..repositories.call_records import CallRecordRepository
+from ..repositories.config_revisions import (
+    ConfigRevisionRepository,
+    record_snapshot,
+)
 from ..repositories.customer_services import (
     CustomerServiceAlreadyExists,
     CustomerServiceRepository,
@@ -38,6 +42,7 @@ def create_router(
     repository: CustomerServiceRepository,
     token_issuer: LiveKitTokenIssuer,
     call_records: CallRecordRepository,
+    config_revisions: ConfigRevisionRepository | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/customer-services")
 
@@ -76,14 +81,18 @@ def create_router(
             tenant_prompt=request.tenant_prompt,
             voice=request.voice,
             response=request.response,
+            insights_profile=request.insights_profile,
         )
         try:
-            return await repository.create(instance)
+            created = await repository.create(instance)
         except CustomerServiceAlreadyExists as error:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Customer service already exists",
             ) from error
+        if config_revisions is not None:
+            await record_snapshot(config_revisions, created, "create")
+        return created
 
     @router.get("/{instance_id}", response_model=CustomerServiceInstance)
     async def get_customer_service(
@@ -157,6 +166,7 @@ def create_router(
                 "tenant_prompt": update.tenant_prompt,
                 "voice": update.voice,
                 "response": update.response,
+                "insights_profile": update.insights_profile,
             }
         )
         try:

@@ -176,6 +176,23 @@ async def _speak_with_optional_lifecycle(
     session = create_session(runtime.providers, runtime.vad)
     if orchestrator is not None:
         _bind_orchestrator(session, orchestrator)
+    closed = asyncio.Event()
+    close_events: list[object] = []
+    on = getattr(session, "on", None)
+    if callable(on):
+
+        def _on_close(event: object = None) -> None:
+            close_events.append(event)
+            closed.set()
+
+        on("close", _on_close)
+    add_shutdown = getattr(ctx, "add_shutdown_callback", None)
+    if callable(add_shutdown):
+
+        async def _on_shutdown(_reason: str = "") -> None:
+            closed.set()
+
+        add_shutdown(_on_shutdown)
     try:
         await session.start(
             room=ctx.room,
@@ -193,6 +210,27 @@ async def _speak_with_optional_lifecycle(
                 ended_reason="agent_error",
             )
         raise
+    if callable(on) or callable(add_shutdown):
+        await closed.wait()
+    if lifecycle is not None:
+        status, ended_reason = _ended_from_close(
+            close_events[0] if close_events else None
+        )
+        await lifecycle.finish(status=status, ended_reason=ended_reason)
+
+
+def _ended_from_close(event: object | None) -> tuple[str, str]:
+    if event is None:
+        return ("completed", "completed")
+    if getattr(event, "error", None) is not None:
+        return ("failed", "agent_error")
+    reason = getattr(event, "reason", None)
+    name = getattr(reason, "name", None)
+    if name in {"PARTICIPANT_DISCONNECTED", "USER_INITIATED"}:
+        return ("completed", "user_hangup")
+    if name == "ERROR":
+        return ("failed", "agent_error")
+    return ("completed", "completed")
 
 
 def _chat_text(item: object) -> str:

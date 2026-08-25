@@ -13,7 +13,6 @@ from ..domain.scheduling import (
     SchedulingProfileUpdate,
     ServiceOffering,
     ServiceOfferingCreate,
-    ServiceOfferingUpdate,
 )
 
 

@@ -24,4 +24,10 @@ class PlatformSettings(BaseSettings):
     smtp_username: str | None = None
     smtp_password: str | None = None
     smtp_from: str | None = None
+    insights_base_url: str | None = None
+    insights_ingest_token: str | None = None
+    demo_operator_account: str = "demo"
+    demo_operator_password: str = "demo123"
+    demo_operator_tenant_id: str = "00000000-0000-0000-0000-000000000001"
+    auth_secret: str | None = None
 

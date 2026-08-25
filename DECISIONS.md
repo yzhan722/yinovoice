@@ -48,6 +48,26 @@
 | 挂断抽取 | 诊所时区解析时段；档期不可用或不完整则回拨，不写假预约 |
 | 录音 | 网页本地上传不变；SIP 走对象键 + Fake Egress；缺 S3 配置则关闭 |
 | 通知 | 配齐 `SMTP_HOST` + `SMTP_FROM` 才发信（smtplib）；失败不回滚业务 |
-| 身份 | 继续 Demo `X-Tenant-ID`，本阶段不做登录/RBAC/计费 |
+| 身份 | Demo 操作员 HMAC 登录（`demo`/`demo123`）；测试与 voice-agent 仍可用 `X-Tenant-ID`；不做计费/角色矩阵 |
 | 部署 | 不自动部署生产；未经用户授权不 commit / push |
+
+## 2026-08-25 Call Insights 渠道契约
+
+| 决策 | 内容 |
+|------|------|
+| 分仓 | Yino 与 Insights 保持独立仓库，不合并、不嵌套 `.git` |
+| 入站 | Insights 保留 `POST /v1/vapi/:profile`；Yino 走独立 `POST /v1/ingest/:profile` + `INGEST_AUTH_TOKEN` |
+| 绑定 | 助手 `insights_profile` 为空则不投递；未知 slug 由 Insights 4xx，Yino 记永久失败 |
+| 邮件 | `channel=yino` 默认不建 mail outbox；仅 profile `mailEnabled: true` 才发。LucaPlus / INP JSON 不加该字段 |
+| 挂断 | Yino 先保存通话/预约/回拨；Insights 失败不回滚。`recordingUrl` 恒为 null |
+| Alembic | `20260825_0010` 已存在且 head 为 `0011`；不再另建冲突的 0010 |
+
+## 2026-08-25 租户登录 / 配置发布 / 知识事实来源
+
+| 决策 | 内容 |
+|------|------|
+| 登录 | 薄切片：stdlib HMAC token，绑定 Demo 租户；不引入 JWT 库、SSO、计费 |
+| 租户头 | 有效 Bearer 取 token 内租户；仅 `X-Tenant-ID` 仍给测试与 Runtime；两者都有则必须一致 |
+| 配置发布 | 当前实例行即通话配置；发布=快照；回滚=恢复快照并 bump `version`；创建时自动基线 |
+| 知识 | 文本条目编译进 `tenant_prompt` 的 `<!-- yino-knowledge-* -->` 标记；不改 voice-agent 检索、不接 RAGFlow |
 

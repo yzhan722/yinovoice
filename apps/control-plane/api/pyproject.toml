@@ -16,6 +16,7 @@ dependencies = [
   "asyncpg>=0.30,<1",
   "alembic>=1.14,<2",
   "tzdata>=2024.1",
+  "httpx>=0.28,<1",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +45,10 @@ target-version = "py311"
 select = ["E", "F", "W", "I", "N", "B", "UP", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"src/yino_platform_api/domain/customer_service.py" = ["RUF001"]
+"src/yino_platform_api/domain/customer_service.py" = ["RUF001", "E501"]
 "src/yino_platform_api/services/intent_extract.py" = ["RUF001"]
+"src/yino_platform_api/routes/auth.py" = ["N815"]
+"src/yino_platform_api/services/auth.py" = ["N818"]
 "tests/test_intent_extract.py" = ["RUF001"]
+"tests/test_config_revision_api.py" = ["RUF001"]
+"tests/test_knowledge_api.py" = ["RUF001"]

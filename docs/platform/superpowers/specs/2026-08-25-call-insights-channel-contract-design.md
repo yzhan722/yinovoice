@@ -1,7 +1,7 @@
 # 通话后报告层对接自家语音（分仓 + 契约）
 
 日期：2026-08-25  
-状态：已确认。实施计划：`docs/platform/superpowers/plans/2026-08-25-call-insights-channel-contract.md`  
+状态：代码完成（未部署）。实施计划：`docs/platform/superpowers/plans/2026-08-25-call-insights-channel-contract.md`  
 仓库：
 
 - 实时语音：`C:\Users\yino\Projects\yinovoice`

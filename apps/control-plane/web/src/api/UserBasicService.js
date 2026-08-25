@@ -1,40 +1,82 @@
-import UserBasicEnum from '@/enum/UserBasicEnum';
-import $WRequest from '@/utils/request/WRequest';
+import { shellMockEnabled, shellLogin, shellTenantProfile } from '@/mocks/shell';
+import { DEMO_TENANT_ID } from './platform/RealtimeVoiceService';
 import {
-  shellMockEnabled,
-  shellLogin,
-  shellTenantProfile,
-} from '@/mocks/shell';
+  clearStoredTenantId,
+  platformApiBase,
+  readStoredUserToken,
+  storeTenantId,
+} from './platform/platformSession';
 
 export class UserBasicService {
-  /** Tenant login: /api/user/login */
+  /** Tenant login: Platform /api/v1/auth/login (shell mock keeps local demo). */
   login(param) {
     if (shellMockEnabled()) {
-      return Promise.resolve(shellLogin('tenant', param?.account, param?.password));
+      const result = shellLogin('tenant', param?.account, param?.password);
+      storeTenantId(DEMO_TENANT_ID);
+      return Promise.resolve(result);
     }
-    return $WRequest.post(UserBasicEnum.LOGIN, { ...param }).then((res) => res);
+    return this._platformLogin(param?.account, param?.password);
   }
 
   getUserInfo(param) {
     if (shellMockEnabled()) {
       return Promise.resolve(shellTenantProfile());
     }
-    return $WRequest.post(UserBasicEnum.GET_USER_INFO, { ...param }).then((res) => res);
+    return this._platformMe();
   }
 
   logout() {
+    clearStoredTenantId();
     if (shellMockEnabled()) {
       return Promise.resolve({ ok: true });
     }
-    return $WRequest.post(UserBasicEnum.LOGOUT).then((res) => res);
+    return Promise.resolve({ ok: true });
   }
 
-  getAccessToken(param) {
-    if (shellMockEnabled()) {
-      return Promise.resolve({ accessToken: 'shell-access-token' });
+  getAccessToken() {
+    const token = readStoredUserToken();
+    return Promise.resolve({ accessToken: token || 'shell-access-token' });
+  }
+
+  async _platformLogin(account, password) {
+    const response = await fetch(`${platformApiBase()}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account, password }),
+    });
+    if (response.status === 401) {
+      const err = new Error('账号或密码错误');
+      err.code = 401;
+      throw err;
     }
-    return $WRequest
-      .request(UserBasicEnum.GET_ACCESS_TOKEN, { ...param }, {}, 'POST', true, false)
-      .then((res) => res);
+    if (!response.ok) {
+      throw new Error('登录失败');
+    }
+    const body = await response.json();
+    storeTenantId(body.tenant_id);
+    return body;
+  }
+
+  async _platformMe() {
+    const token = readStoredUserToken();
+    if (!token) {
+      throw new Error('未登录');
+    }
+    const response = await fetch(`${platformApiBase()}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new Error('登录已失效');
+    }
+    const body = await response.json();
+    storeTenantId(body.tenant_id);
+    return {
+      userAccount: body.userAccount || body.account,
+      userNickname: body.userNickname || body.account,
+      name: body.userNickname || body.account,
+      roles: body.roles?.length ? body.roles : ['all'],
+      permissions: [],
+      tenant_id: body.tenant_id,
+    };
   }
 }

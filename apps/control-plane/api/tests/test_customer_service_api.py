@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from yino_platform_api.app import create_app
@@ -90,6 +91,7 @@ def test_get_customer_service_is_tenant_scoped(client, ids) -> None:
     assert body["display_name"] == "常州太平洋口腔语音客服"
     assert body["voice"]["preset_id"] == "mandarin-standard"
     assert body["voice"]["tts_voice"] == "longanqian"
+    assert body["insights_profile"] is None
     assert "platform_prompt" in body
     assert "tenant_prompt" in body
     assert not {
@@ -136,6 +138,38 @@ def test_update_requires_matching_version(client, ids) -> None:
     assert conflict.status_code == 409
 
 
+def test_update_writes_insights_profile_slug(client, ids) -> None:
+    headers = {"X-Tenant-ID": str(ids.tenant_id)}
+    current = client.get(
+        f"/api/v1/customer-services/{ids.instance_id}",
+        headers=headers,
+    ).json()
+    current["expected_version"] = current.pop("version")
+    for field in (
+        "id",
+        "tenant_id",
+        "business_profile",
+        "primary_language",
+        "deleted_at",
+    ):
+        current.pop(field, None)
+    current["insights_profile"] = "demo-clinic"
+
+    updated = client.put(
+        f"/api/v1/customer-services/{ids.instance_id}",
+        headers=headers,
+        json=current,
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["insights_profile"] == "demo-clinic"
+    loaded = client.get(
+        f"/api/v1/customer-services/{ids.instance_id}",
+        headers=headers,
+    )
+    assert loaded.json()["insights_profile"] == "demo-clinic"
+
+
 def test_update_rejects_unknown_voice_preset(client, ids) -> None:
     current = client.get(
         f"/api/v1/customer-services/{ids.instance_id}",
@@ -174,7 +208,10 @@ def test_update_rejects_disabling_one_question_at_a_time(client, ids) -> None:
     assert response.status_code == 422
 
 
-def test_default_app_seeds_stable_demo_customer_service() -> None:
+def test_default_app_seeds_stable_demo_customer_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "")
     client = TestClient(create_app())
 
     response = client.get(

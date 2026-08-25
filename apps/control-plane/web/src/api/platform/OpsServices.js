@@ -10,6 +10,7 @@ import {
   listAppointments as listMockAppointments,
 } from '@/mocks/opsStore';
 import { DEMO_TENANT_ID } from './RealtimeVoiceService';
+import { platformAuthHeaders } from './platformSession';
 
 function platformBase() {
   return String(import.meta.env.VITE_PLATFORM_API_BASE || 'http://localhost:8000').replace(
@@ -23,7 +24,7 @@ async function platformRequest(path, init = {}) {
     ...init,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'X-Tenant-ID': DEMO_TENANT_ID,
+      ...platformAuthHeaders(DEMO_TENANT_ID),
       ...(init.headers || {}),
     },
   });

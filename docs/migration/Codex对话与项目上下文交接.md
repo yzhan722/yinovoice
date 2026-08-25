@@ -57,8 +57,10 @@ YINO AI Voice 是多租户 AI 电话客服平台。当前可运行主链路为�
 
 - `deploy/src` 与 `apps` 存在重复快照，尚未决定去重方式。
 - 部分脚本可能仍引用迁移前目录名。
-- 完整 Vapi Adapter、生产多租户/RBAC、真实 PSTN/Egress 和配置发布闭环仍未完成。
+- 完整 Vapi Adapter、生产 SSO/RBAC/计费、真实 PSTN/Egress 仍未完成。配置发布薄切片（快照/Diff/回滚）与文本知识写入 Prompt 已落地。
 - 商业闭环（内建排期、Tool、挂断抽取按档期写入、SMTP、排期页通知设置）已在 `apps/` 落地；真实电话暂缓。未部署生产。
+- 2026-08-25 另落地 Demo HMAC 登录、实例配置快照发布/回滚、知识条目编译进 `tenant_prompt`。Agent 未 commit / push。
+- 2026-08-25 Call Insights 渠道契约已在 Yino 与独立 Insights 仓落地（ingest + 绑定投递）；Runtime 成功挂断会等 LiveKit close 再 finish。未部署、未 commit。
 - 三个已跟踪 `*.egg-info` 生成目录是否移除，需要单独确认。
 - rulesets/branch protection 是否强制 PR，需要仓库所有者或管理员确认。
 

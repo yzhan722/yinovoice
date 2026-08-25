@@ -22,7 +22,8 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -126,6 +127,7 @@ class VoiceAgentInstance(Base):
     )
     voice_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     response_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    insights_profile: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -704,5 +706,124 @@ class NotificationEventRow(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False)
     detail: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class InsightsDispatchJobRow(Base):
+    __tablename__ = "insights_dispatch_jobs"
+    __table_args__ = (
+        UniqueConstraint("call_id", name="insights_dispatch_jobs_call_id_uidx"),
+        CheckConstraint(
+            "status IN ('pending', 'sent', 'failed')",
+            name="insights_dispatch_jobs_status_check",
+        ),
+        CheckConstraint(
+            "attempts >= 0",
+            name="insights_dispatch_jobs_attempts_check",
+        ),
+        Index(
+            "insights_dispatch_jobs_due_idx",
+            "status",
+            "next_attempt_at",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    call_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    profile: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    body: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("''")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class InstanceConfigRevisionRow(Base):
+    __tablename__ = "instance_config_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "instance_id",
+            "revision",
+            name="instance_config_revisions_revision_uidx",
+        ),
+        CheckConstraint(
+            "revision >= 1",
+            name="instance_config_revisions_revision_check",
+        ),
+        CheckConstraint(
+            "source IN ('create', 'publish', 'rollback')",
+            name="instance_config_revisions_source_check",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "instance_id"],
+            ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
+            name="instance_config_revisions_instance_fkey",
+        ),
+        Index(
+            "instance_config_revisions_instance_idx",
+            "tenant_id",
+            "instance_id",
+            "revision",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    instance_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class KnowledgeDocumentRow(Base):
+    __tablename__ = "knowledge_documents"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "id",
+            name="knowledge_documents_tenant_id_uidx",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "instance_id"],
+            ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
+            name="knowledge_documents_instance_fkey",
+        ),
+        Index(
+            "knowledge_documents_instance_idx",
+            "tenant_id",
+            "instance_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    instance_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    title: Mapped[str] = mapped_column(String(80), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

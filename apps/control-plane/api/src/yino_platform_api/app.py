@@ -1,6 +1,11 @@
+import asyncio
+import logging
+import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from .config import PlatformSettings
 from .db.engine import create_db_engine, create_session_factory
 from .db.seed import ensure_demo_seed
+from .dependencies import bind_auth_service
 from .domain.customer_service import (
     DEMO_CUSTOMER_SERVICE_ID,
     DEMO_TENANT_ID,
@@ -26,9 +32,21 @@ from .repositories.callback_tasks import (
     CallbackTaskRepository,
     InMemoryCallbackTaskRepository,
 )
+from .repositories.config_revisions import (
+    ConfigRevisionRepository,
+    InMemoryConfigRevisionRepository,
+)
 from .repositories.customer_services import (
     CustomerServiceRepository,
     InMemoryCustomerServiceRepository,
+)
+from .repositories.insights_dispatch import (
+    InMemoryInsightsDispatchRepository,
+    InsightsDispatchRepository,
+)
+from .repositories.knowledge import (
+    InMemoryKnowledgeRepository,
+    KnowledgeRepository,
 )
 from .repositories.phone_numbers import (
     InMemoryPhoneNumberRepository,
@@ -38,7 +56,10 @@ from .repositories.postgres import (
     PostgresAppointmentRepository,
     PostgresCallbackTaskRepository,
     PostgresCallRecordRepository,
+    PostgresConfigRevisionRepository,
     PostgresCustomerServiceRepository,
+    PostgresInsightsDispatchRepository,
+    PostgresKnowledgeRepository,
     PostgresNotificationRepository,
     PostgresPhoneNumberRepository,
     PostgresSchedulingRepository,
@@ -53,16 +74,21 @@ from .repositories.tool_invocations import (
     ToolInvocationRepository,
 )
 from .routes.appointments import create_router as create_appointment_router
+from .routes.auth import create_router as create_auth_router
 from .routes.call_records import create_router as create_call_record_router
 from .routes.call_sessions import create_router as create_call_session_router
 from .routes.callback_tasks import create_router as create_callback_task_router
+from .routes.config_revisions import create_router as create_config_revision_router
 from .routes.customer_services import create_router as create_customer_service_router
 from .routes.dashboard import create_router as create_dashboard_router
+from .routes.knowledge import create_router as create_knowledge_router
 from .routes.notifications import create_router as create_notification_router
 from .routes.phone_numbers import create_router as create_phone_number_router
 from .routes.scheduling import create_router as create_scheduling_router
 from .routes.tool_invocations import create_router as create_tool_invocation_router
+from .services.auth import AuthService
 from .services.call_lifecycle import CallLifecycleService
+from .services.insights_http import drain_once
 from .services.livekit_egress import RecordingEgressService, sink_from_settings
 from .services.livekit_tokens import (
     AgentDispatcher,
@@ -77,6 +103,8 @@ from .services.notifications import (
 )
 from .services.tool_execution import ToolExecutionService
 
+logger = logging.getLogger(__name__)
+
 
 def create_app(
     repository: CustomerServiceRepository | None = None,
@@ -89,6 +117,10 @@ def create_app(
     scheduling_repository: SchedulingRepository | None = None,
     tool_invocation_repository: ToolInvocationRepository | None = None,
     notification_repository: NotificationRepository | None = None,
+    insights_dispatch_repository: InsightsDispatchRepository | None = None,
+    auth_service: AuthService | None = None,
+    config_revision_repository: ConfigRevisionRepository | None = None,
+    knowledge_repository: KnowledgeRepository | None = None,
     recording_dir: Path | str | None = None,
     call_recording_max_bytes: int | None = None,
 ) -> FastAPI:
@@ -153,6 +185,23 @@ def create_app(
             notification_repository = PostgresNotificationRepository(sessions)
         else:
             notification_repository = InMemoryNotificationRepository()
+    if insights_dispatch_repository is None:
+        if sessions is not None:
+            insights_dispatch_repository = PostgresInsightsDispatchRepository(
+                sessions
+            )
+        else:
+            insights_dispatch_repository = InMemoryInsightsDispatchRepository()
+    if config_revision_repository is None:
+        if sessions is not None:
+            config_revision_repository = PostgresConfigRevisionRepository(sessions)
+        else:
+            config_revision_repository = InMemoryConfigRevisionRepository()
+    if knowledge_repository is None:
+        if sessions is not None:
+            knowledge_repository = PostgresKnowledgeRepository(sessions)
+        else:
+            knowledge_repository = InMemoryKnowledgeRepository()
 
     egress_service = RecordingEgressService(
         sink_from_settings(
@@ -192,12 +241,40 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        drain_task = None
         if engine is not None and sessions is not None:
             async with sessions() as session:
                 await ensure_demo_seed(session)
-        yield
-        if engine is not None:
-            await engine.dispose()
+        run_worker = bool(
+            settings.insights_base_url
+            and settings.insights_ingest_token
+            and not os.environ.get("PYTEST_CURRENT_TEST")
+        )
+        if run_worker:
+
+            async def _insights_drain_loop() -> None:
+                while True:
+                    try:
+                        await drain_once(
+                            insights_dispatch_repository,
+                            now=datetime.now(UTC),
+                            base_url=settings.insights_base_url or "",
+                            token=settings.insights_ingest_token or "",
+                        )
+                    except Exception:
+                        logger.exception("insights drain failed")
+                    await asyncio.sleep(2)
+
+            drain_task = asyncio.create_task(_insights_drain_loop())
+        try:
+            yield
+        finally:
+            if drain_task is not None:
+                drain_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await drain_task
+            if engine is not None:
+                await engine.dispose()
 
     app = FastAPI(
         title="Yino Platform API",
@@ -219,7 +296,7 @@ def create_app(
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):\d+",
         allow_credentials=False,
         allow_methods=["GET", "PUT", "PATCH", "POST", "DELETE"],
-        allow_headers=["Content-Type", "X-Tenant-ID"],
+        allow_headers=["Content-Type", "X-Tenant-ID", "Authorization"],
     )
     resolved_recording_dir = (
         Path(recording_dir)
@@ -232,12 +309,29 @@ def create_app(
         else settings.call_recording_max_bytes
     )
 
+    if auth_service is None:
+        auth_service = AuthService(
+            secret=settings.auth_secret or settings.livekit_api_secret,
+            account=settings.demo_operator_account,
+            password=settings.demo_operator_password,
+            tenant_id=UUID(settings.demo_operator_tenant_id),
+        )
+    bind_auth_service(auth_service)
+
+    app.include_router(create_auth_router(auth_service))
     app.include_router(
         create_customer_service_router(
             repository,
             token_issuer,
             call_record_repository,
+            config_revision_repository,
         )
+    )
+    app.include_router(
+        create_config_revision_router(repository, config_revision_repository)
+    )
+    app.include_router(
+        create_knowledge_router(repository, knowledge_repository)
     )
     app.include_router(
         create_call_record_router(
@@ -263,6 +357,7 @@ def create_app(
                 scheduling=scheduling_repository,
                 notifications=notification_service,
                 egress=egress_service,
+                insights_dispatch=insights_dispatch_repository,
             )
         )
     )

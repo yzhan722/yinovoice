@@ -14,8 +14,10 @@ from ..repositories.appointments import AppointmentRepository
 from ..repositories.call_records import CallRecordRepository
 from ..repositories.callback_tasks import CallbackTaskRepository
 from ..repositories.customer_services import CustomerServiceRepository
+from ..repositories.insights_dispatch import InsightsDispatchRepository
 from ..repositories.scheduling import SchedulingRepository
 from ..repositories.tool_invocations import ToolInvocationRepository
+from .insights_dispatch import try_enqueue_ended_call
 from .intent_extract import try_extract_intents
 from .livekit_egress import RecordingEgressService
 from .notifications import NotificationService
@@ -50,6 +52,7 @@ class CallLifecycleService:
         scheduling: SchedulingRepository | None = None,
         notifications: NotificationService | None = None,
         egress: RecordingEgressService | None = None,
+        insights_dispatch: InsightsDispatchRepository | None = None,
     ) -> None:
         self._call_records = call_records
         self._customer_services = customer_services
@@ -59,6 +62,7 @@ class CallLifecycleService:
         self._scheduling = scheduling
         self._notifications = notifications
         self._egress = egress
+        self._insights_dispatch = insights_dispatch
 
     async def start(
         self,
@@ -186,6 +190,11 @@ class CallLifecycleService:
                 scheduling=self._scheduling,
                 notifications=self._notifications,
             )
+        await try_enqueue_ended_call(
+            saved,
+            customer_services=self._customer_services,
+            insights_dispatch=self._insights_dispatch,
+        )
         return saved
 
     async def _require_active(

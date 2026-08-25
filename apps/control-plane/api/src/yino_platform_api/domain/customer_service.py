@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import textwrap
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -143,6 +143,22 @@ def _validate_greeting(value: str) -> str:
     return result
 
 
+_INSIGHTS_PROFILE_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def _normalize_insights_profile(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("insights_profile must be a string")
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if stripped in {".", ".."} or not _INSIGHTS_PROFILE_RE.fullmatch(stripped):
+        raise ValueError("insights_profile is invalid")
+    return stripped
+
+
 class VoiceProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -180,6 +196,7 @@ class CustomerServiceInstance(BaseModel):
     tenant_prompt: str = ""
     voice: VoiceProfile
     response: ResponseProfile
+    insights_profile: str | None = None
     deleted_at: datetime | None = None
 
     @field_validator("display_name", "organization_name")
@@ -191,6 +208,11 @@ class CustomerServiceInstance(BaseModel):
     @classmethod
     def validate_greeting(cls, value: str) -> str:
         return _validate_greeting(value)
+
+    @field_validator("insights_profile", mode="before")
+    @classmethod
+    def normalize_insights_profile(cls, value: object) -> str | None:
+        return _normalize_insights_profile(value)
 
     @classmethod
     def demo(
@@ -232,6 +254,7 @@ class CustomerServiceCreate(BaseModel):
     tenant_prompt: str = Field(default="", max_length=8000)
     voice: VoiceProfile = Field(default_factory=VoiceProfile)
     response: ResponseProfile = Field(default_factory=ResponseProfile)
+    insights_profile: str | None = None
 
     @field_validator("display_name", "organization_name")
     @classmethod
@@ -242,6 +265,11 @@ class CustomerServiceCreate(BaseModel):
     @classmethod
     def validate_greeting(cls, value: str) -> str:
         return _validate_greeting(value)
+
+    @field_validator("insights_profile", mode="before")
+    @classmethod
+    def normalize_insights_profile(cls, value: object) -> str | None:
+        return _normalize_insights_profile(value)
 
 
 class CustomerServiceUpdate(BaseModel):
@@ -255,6 +283,7 @@ class CustomerServiceUpdate(BaseModel):
     tenant_prompt: str = Field(default="", max_length=8000)
     voice: VoiceProfile
     response: ResponseProfile
+    insights_profile: str | None = None
 
     @field_validator("display_name", "organization_name")
     @classmethod
@@ -265,6 +294,50 @@ class CustomerServiceUpdate(BaseModel):
     @classmethod
     def validate_greeting(cls, value: str) -> str:
         return _validate_greeting(value)
+
+    @field_validator("insights_profile", mode="before")
+    @classmethod
+    def normalize_insights_profile(cls, value: object) -> str | None:
+        return _normalize_insights_profile(value)
+
+
+PUBLISHABLE_FIELDS = frozenset(
+    {
+        "display_name",
+        "organization_name",
+        "greeting",
+        "platform_prompt",
+        "tenant_prompt",
+        "voice",
+        "response",
+        "insights_profile",
+    }
+)
+
+
+def publishable_snapshot(instance: CustomerServiceInstance) -> dict[str, Any]:
+    return instance.model_dump(mode="json", include=PUBLISHABLE_FIELDS)
+
+
+def apply_publishable_snapshot(
+    instance: CustomerServiceInstance,
+    snapshot: dict[str, Any],
+    *,
+    version: int,
+) -> CustomerServiceInstance:
+    return instance.model_copy(
+        update={
+            "version": version,
+            "display_name": snapshot["display_name"],
+            "organization_name": snapshot["organization_name"],
+            "greeting": snapshot["greeting"],
+            "platform_prompt": snapshot.get("platform_prompt", ""),
+            "tenant_prompt": snapshot.get("tenant_prompt", ""),
+            "voice": VoiceProfile.model_validate(snapshot["voice"]),
+            "response": ResponseProfile.model_validate(snapshot["response"]),
+            "insights_profile": snapshot.get("insights_profile"),
+        }
+    )
 
 
 DEMO_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")

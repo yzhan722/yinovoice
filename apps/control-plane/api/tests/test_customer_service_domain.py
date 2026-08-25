@@ -8,6 +8,8 @@ from yino_platform_api.domain.customer_service import (
     CustomerServiceInstance,
     ResponseProfile,
     VoiceProfile,
+    apply_publishable_snapshot,
+    publishable_snapshot,
 )
 from yino_platform_api.repositories.customer_services import (
     CustomerServiceAlreadyExists,
@@ -148,9 +150,23 @@ def test_customer_service_has_tenant_and_version() -> None:
     assert instance.voice.tts_voice == "longanqian"
     assert instance.response.brevity == "balanced"
     assert instance.response.max_spoken_sentences == 4
+    assert instance.insights_profile is None
     assert len(instance.platform_prompt) <= 8000
     assert len(instance.tenant_prompt) <= 8000
     assert "助手" not in instance.display_name
+
+
+def test_publishable_snapshot_round_trip_keeps_prompt_fields() -> None:
+    instance = CustomerServiceInstance.demo(
+        instance_id=uuid4(),
+        tenant_id=uuid4(),
+    )
+    snapshot = publishable_snapshot(instance)
+    restored = apply_publishable_snapshot(instance, snapshot, version=2)
+    assert restored.version == 2
+    assert restored.greeting == instance.greeting
+    assert restored.tenant_prompt == instance.tenant_prompt
+    assert restored.voice.tts_voice == instance.voice.tts_voice
 
 
 def test_demo_greeting_avoids_identity_disclosure_claims() -> None:
@@ -226,3 +242,36 @@ async def test_repository_lists_only_requested_tenant_with_pagination() -> None:
     assert total == 2
     assert len(items) == 1
     assert items[0].tenant_id == tenant_id
+
+
+def test_insights_profile_optional_and_rejects_bad_slug() -> None:
+    demo = CustomerServiceInstance.demo(
+        instance_id=uuid4(),
+        tenant_id=uuid4(),
+    )
+    assert demo.insights_profile is None
+    bound = demo.model_copy(update={"insights_profile": "inp-group"})
+    assert bound.insights_profile == "inp-group"
+    blank = CustomerServiceInstance.model_validate(
+        {**demo.model_dump(), "insights_profile": "  "}
+    )
+    assert blank.insights_profile is None
+    with pytest.raises(ValidationError):
+        CustomerServiceInstance.model_validate(
+            {**demo.model_dump(), "insights_profile": "bad slug"}
+        )
+    with pytest.raises(ValidationError):
+        CustomerServiceInstance.model_validate(
+            {**demo.model_dump(), "insights_profile": "."}
+        )
+    with pytest.raises(ValidationError):
+        CustomerServiceInstance.model_validate(
+            {**demo.model_dump(), "insights_profile": ".."}
+        )
+    with pytest.raises(ValidationError):
+        CustomerServiceCreate(
+            display_name="Demo Reception",
+            organization_name="Synthetic Demo Organization",
+            greeting="Hello, how may I help you?",
+            insights_profile="has/slash",
+        )

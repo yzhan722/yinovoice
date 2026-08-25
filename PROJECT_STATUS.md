@@ -1,5 +1,22 @@
 # PROJECT_STATUS
 
+## 2026-08-25 Call Insights 渠道契约（代码已落地，未部署）
+
+- **Insights**（独立仓 `n8n-workflow-export/apps/vapi-call-insights`）：`POST /v1/ingest/:profile` + `INGEST_AUTH_TOKEN`；`Call.channel` 为 `vapi|yino`；yino 默认不建邮件 outbox。VAPI 路由与 lucaplus/inp-group 收件人文件未改。
+- **Yino**：实例可空 `insights_profile`；Alembic `20260825_0010` 队列表；`finish` 后入队；后台 `INSIGHTS_BASE_URL` + `INSIGHTS_INGEST_TOKEN` 才 drain。缺绑定或空对话不投递。
+- **未做**：生产部署、Vue 绑定表单、录音 URL、自动创建 Insights 客户、把 LucaPlus/INP 切到 ingest。
+- **Runtime finish**：派发会话在 `session.start` 之后等到 LiveKit `close`（或 job shutdown）再 `POST /finish`；异常仍记 `failed`/`agent_error`。无 close 钩子的测试会话在 start 后立即 finish。
+- Agent 未 commit / push。
+
+## 2026-08-25 租户登录 / 配置发布 / 知识 SoT（代码已落地，未部署）
+
+- **登录**：`POST /api/v1/auth/login` 发 HMAC token；`GET /api/v1/auth/me`。默认账号 `demo` / `demo123`，租户绑定 Demo UUID。Web：`VITE_SHELL_MOCK=false` 走 Platform；mock 仍可进壳，但会写入同一 Demo 租户。
+- **租户解析**：Bearer 有效则用 token 内租户；仅 `X-Tenant-ID` 仍给测试与 voice-agent；两者都有且不一致 → 403；都没有 → 401。
+- **配置发布**：创建实例自动基线快照；`GET .../revisions`、`GET .../config-diff`、`POST .../publish`、`POST .../rollback`。通话仍读当前实例行，不拆 draft/live 调度。
+- **知识**：文本条目挂在实例上；`POST .../knowledge/apply` 写入 `tenant_prompt` 的 `<!-- yino-knowledge-start -->` / `end` 标记。仅 `.txt`；无 PDF/DOCX/RAG。
+- **Alembic head**：`20260825_0011`（`instance_config_revisions` + `knowledge_documents`）。修订自 `20260825_0010`。
+- **未做**：SSO、角色矩阵、计费、真实 PSTN、S3 Egress 客户端、通话中 RAG。
+
 ## 2026-08-25 商业 MVP 入站电话闭环（代码已落地，未部署）
 
 - **范围**：网页/会话后处理闭环优先：内建排期、Tool、挂断抽取、通知。电话 PSTN **暂缓**。
@@ -10,9 +27,9 @@
 - **转接**：无实时转人工；只能 `create_callback`。
 - **录音**：网页仍本地 blob；SIP Fake Egress 对象键仍保留。四项 S3 变量未配齐则关闭。
 - **通知**：`SMTP_HOST` + `SMTP_FROM` 启用真实 smtplib（587 STARTTLS / 465 SSL）；失败记事件、不回滚业务写。排期页可保存租户通知邮箱。
-- **租户**：Demo `X-Tenant-ID`。Alembic head：`20260824_0009`。
+- **租户**：Demo 操作员 HMAC + 兼容 `X-Tenant-ID`。Alembic head：`20260825_0011`。
 - **冒烟**：`scripts/smoke_commercial_mvp.py`（内存仓库）；手工清单 `docs/platform/2026-08-25-commercial-mvp-manual-checklist.md`。
-- **未做**：真实 PSTN（Twilio 不能服务大陆 +86）、真实 Egress/S3 客户端、生产 RBAC、生产部署。Agent 未 commit / push。
+- **未做**：真实 PSTN（Twilio 不能服务大陆 +86）、真实 Egress/S3 客户端、SSO/角色矩阵/计费、生产部署。Agent 未 commit / push。
 
 ## 2026-08-13 主仓库与部署边界
 

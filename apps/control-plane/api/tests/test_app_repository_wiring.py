@@ -34,7 +34,7 @@ PLATFORM_API_ROOT = Path(__file__).resolve().parents[1]
 def test_create_app_defaults_to_memory_without_database_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "")
     app = create_app()
     assert app.state.persistence == "memory"
 

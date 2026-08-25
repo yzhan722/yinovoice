@@ -12,9 +12,14 @@
 - [x] M8：TDesign 电话/排期页、通话抽屉 Tool 记录、Dashboard 真实 KPI；排期页可保存通知邮箱
 - [x] M9：`.env.example`、合成冒烟、手工 A–E 清单、治理文档对齐
 - [x] 挂断抽取按诊所时区解析时段；无排期/无匹配项目/档期不可用则写回拨，不写假预约
+- [x] Demo 操作员登录（HMAC token）+ 保留 `X-Tenant-ID` 给测试与 voice-agent；Bearer 与 Header 不一致则 403
+- [x] 实例配置快照：创建自动基线、发布、Diff、按版本回滚（不拆 draft/live 调度）
+- [x] 文本知识条目编译进 `tenant_prompt` 标记区；`.txt` 上传；不接 RAG / PDF
+- [x] Call Insights 渠道契约（分仓）：Yino 绑定 `insights_profile` 后异步 POST `/v1/ingest/:profile`；Insights 保留 VAPI webhook；默认不发 Yino 邮件。代码完成，未部署、未 commit
+- [x] Runtime 成功挂断调用 `finish`（等 LiveKit close / job shutdown；失败路径仍 `agent_error`）
 - [ ] 真实 PSTN / LiveKit SIP trunk（**已搁置**：先完成网页与后处理闭环；国内 +86 不能靠 Twilio）
 - [ ] 真实 LiveKit Egress → S3
-- [ ] 生产多租户登录与 RBAC（替换 Demo `X-Tenant-ID`）
+- [ ] 生产 SSO / 角色矩阵 / 计费（当前仅 Demo 操作员 HMAC 登录；voice-agent 仍可用 `X-Tenant-ID`）
 
 ## Voice Agent Instance 产品化
 
@@ -47,7 +52,8 @@
 - [ ] 收敛 `deploy/src` 与 `apps/` 重复代码  
 - [ ] 补齐 `packages/vapi-adapter` 设计与占位实现  
 - [ ] 录音转 S3 兼容存储的设计落地  
-- [ ] 配置发布：版本 / 校验 / 回读 / Diff / 回滚  
+- [ ] 生产 SSO / 角色矩阵 / 计费（当前仅 Demo 操作员 HMAC 登录）
+- [x] 配置发布：版本 / 校验 / 回读 / Diff / 回滚  
 - [ ] 决定是否移除已跟踪的三个 `*.egg-info` 生成元数据目录
 - [ ] 决定 `deploy/src` 快照的长期保留、生成或去重策略
 
@@ -55,5 +61,5 @@
 
 - [ ] C 后续：多医生 / HIS 对接（当前商业 MVP 为单资源内建排期）
 - [ ] SIP / 电话通道：生产 PSTN 与真实 Egress（**暂缓**；代码映射与 Fake Egress 已在，不阻塞网页预约/回拨闭环）  
-- [ ] 生产多租户与 RBAC（替换 Demo `X-Tenant-ID`）  
+- [ ] 生产多租户与完整 RBAC（当前仅 Demo 操作员 HMAC；voice-agent 仍可用 `X-Tenant-ID`）  
 - [ ] 按需纳入 archive 原型（单独确认）  

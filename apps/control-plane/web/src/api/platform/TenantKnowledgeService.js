@@ -1,39 +1,67 @@
-import UserKnowledgeBaseEnum from '@/enum/UserKnowledgeBaseEnum';
-import $WRequest from '@/utils/request/WRequest';
-import { shellMockEnabled } from '@/mocks/shell';
-import { TenantKnowledgeMock } from './OpsServices';
+import { CUSTOMER_SERVICE_VERSION_CONFLICT } from './RealtimeVoiceService';
+import { platformApiBase, platformAuthHeaders } from './platformSession';
 
-const mock = new TenantKnowledgeMock();
-
-/** Tenant — knowledge base (legacy: UserKnowledgeBaseService) */
 export class TenantKnowledgeService {
-  getList(param = {}) {
-    if (shellMockEnabled()) {
-      return mock.listMine(param);
-    }
-    return $WRequest.postNoAnimation(UserKnowledgeBaseEnum.LIST, { ...param });
+  async list(instanceId) {
+    const page = await this._request(
+      `/api/v1/customer-services/${encodeURIComponent(instanceId)}/knowledge`,
+    );
+    return { items: page.items || [], total: page.total ?? 0 };
   }
 
-  uploadFile(file) {
-    if (shellMockEnabled()) {
-      return mock.upload(file);
-    }
-    const formData = new FormData();
-    formData.append('file', file);
-    return $WRequest.post(UserKnowledgeBaseEnum.UPLOAD, formData);
+  create(instanceId, payload) {
+    return this._request(
+      `/api/v1/customer-services/${encodeURIComponent(instanceId)}/knowledge`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ title: payload.title, body: payload.body }),
+      },
+    );
   }
 
-  getAssociatedFiles() {
-    if (shellMockEnabled()) {
-      return mock.listAssociated();
-    }
-    return $WRequest.postNoAnimation(UserKnowledgeBaseEnum.ASSOCIATED_FILES, {});
+  update(instanceId, documentId, payload) {
+    return this._request(
+      `/api/v1/customer-services/${encodeURIComponent(instanceId)}/knowledge/${encodeURIComponent(documentId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ title: payload.title, body: payload.body }),
+      },
+    );
   }
 
-  updateStatus(fileId) {
-    if (shellMockEnabled()) {
-      return Promise.resolve({ fileId, filExtStatus: 'done' });
+  async remove(instanceId, documentId) {
+    await this._request(
+      `/api/v1/customer-services/${encodeURIComponent(instanceId)}/knowledge/${encodeURIComponent(documentId)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  apply(instanceId, expectedVersion) {
+    return this._request(
+      `/api/v1/customer-services/${encodeURIComponent(instanceId)}/knowledge/apply`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ expected_version: expectedVersion }),
+      },
+    );
+  }
+
+  async _request(path, init = {}) {
+    const response = await fetch(platformApiBase() + path, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        ...platformAuthHeaders(),
+        ...(init.headers || {}),
+      },
+    });
+    if (response.status === 204) return null;
+    if (response.status === 409) {
+      throw new Error(CUSTOMER_SERVICE_VERSION_CONFLICT);
     }
-    return $WRequest.postNoAnimation(UserKnowledgeBaseEnum.UPDATE_STATUS, { fileId });
+    if (!response.ok) {
+      throw new Error('平台服务暂时不可用，请稍后重试');
+    }
+    return response.json();
   }
 }

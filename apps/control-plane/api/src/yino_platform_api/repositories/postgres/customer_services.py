@@ -36,6 +36,7 @@ def _to_domain(row: VoiceAgentInstance) -> CustomerServiceInstance:
         tenant_prompt=row.tenant_prompt,
         voice=VoiceProfile.model_validate(row.voice_config),
         response=ResponseProfile.model_validate(row.response_config),
+        insights_profile=row.insights_profile,
         deleted_at=row.deleted_at,
     )
 
@@ -122,6 +123,7 @@ class PostgresCustomerServiceRepository:
                     tenant_prompt=instance.tenant_prompt,
                     voice_config=instance.voice.model_dump(mode="json"),
                     response_config=instance.response.model_dump(mode="json"),
+                    insights_profile=instance.insights_profile,
                     deleted_at=instance.deleted_at,
                     updated_at=datetime.now(UTC),
                 )
@@ -156,6 +158,7 @@ class PostgresCustomerServiceRepository:
                     tenant_prompt=instance.tenant_prompt,
                     voice_config=instance.voice.model_dump(mode="json"),
                     response_config=instance.response.model_dump(mode="json"),
+                    insights_profile=instance.insights_profile,
                     deleted_at=instance.deleted_at,
                 )
             )
@@ -181,6 +184,7 @@ class PostgresCustomerServiceRepository:
                     tenant_prompt=instance.tenant_prompt,
                     voice_config=instance.voice.model_dump(mode="json"),
                     response_config=instance.response.model_dump(mode="json"),
+                    insights_profile=instance.insights_profile,
                     deleted_at=instance.deleted_at,
                 )
             )

@@ -1,3 +1,5 @@
+import { platformAuthHeaders, readStoredTenantId } from './platformSession';
+
 export type CallRecordStatus = 'completed' | 'interrupted' | 'failed';
 export type RecordingStatus = 'none' | 'uploading' | 'ready' | 'failed';
 export type TranscriptRole = 'user' | 'assistant';
@@ -69,6 +71,7 @@ export interface CustomerServiceInstance {
   tenant_prompt: string;
   voice: VoiceProfile;
   response: ResponseProfile;
+  insights_profile?: string | null;
   deleted_at?: string | null;
 }
 
@@ -92,6 +95,7 @@ export interface CustomerServiceUpdateRequest {
   tenant_prompt: string;
   voice: VoiceProfile;
   response: ResponseProfile;
+  insights_profile?: string | null;
 }
 
 export interface CustomerServiceCreateInput {
@@ -106,6 +110,28 @@ export interface CustomerServiceCreateInput {
 
 export const CUSTOMER_SERVICE_VERSION_CONFLICT =
   '配置已被更新，请刷新后重试';
+
+export interface ConfigDiffChange {
+  field: string;
+  before: unknown;
+  after: unknown;
+}
+
+export interface ConfigDiff {
+  current_version: number;
+  published_revision: number | null;
+  changes: ConfigDiffChange[];
+}
+
+export interface ConfigRevision {
+  id: string;
+  tenant_id: string;
+  instance_id: string;
+  revision: number;
+  source: 'create' | 'publish' | 'rollback';
+  snapshot: Record<string, unknown>;
+  created_at: string;
+}
 
 export interface LiveKitJoin {
   server_url: string;
@@ -258,7 +284,7 @@ export class RealtimeVoiceService {
       || import.meta.env.VITE_PLATFORM_API_BASE
       || 'http://localhost:8000',
     );
-    this.tenantId = options.tenantId || DEMO_TENANT_ID;
+    this.tenantId = options.tenantId || readStoredTenantId(DEMO_TENANT_ID);
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
@@ -278,6 +304,7 @@ export class RealtimeVoiceService {
         ...init,
         headers: {
           'Content-Type': 'application/json',
+          ...platformAuthHeaders(this.tenantId),
           'X-Tenant-ID': this.tenantId,
           ...init.headers,
         },
@@ -309,6 +336,7 @@ export class RealtimeVoiceService {
       const response = await fetch(this.baseUrl + path, {
         ...init,
         headers: {
+          ...platformAuthHeaders(this.tenantId),
           'X-Tenant-ID': this.tenantId,
           ...init.headers,
         },
@@ -493,6 +521,79 @@ export class RealtimeVoiceService {
           }
           if (!response.ok) throw new Error('unsafe response');
           return await response.json() as CustomerServiceInstance;
+        },
+      );
+    } catch (error) {
+      if (
+        error instanceof Error
+        && error.message === CUSTOMER_SERVICE_VERSION_CONFLICT
+      ) {
+        throw error;
+      }
+      throw new Error(SAFE_PLATFORM_ERROR);
+    }
+  }
+
+  listConfigRevisions(
+    customerServiceId: string,
+    signal?: AbortSignal,
+  ): Promise<{ items: ConfigRevision[]; total: number }> {
+    return this.request(
+      `/api/v1/customer-services/${encodeURIComponent(customerServiceId)}/revisions`,
+      { method: 'GET' },
+      signal,
+    );
+  }
+
+  getConfigDiff(
+    customerServiceId: string,
+    signal?: AbortSignal,
+  ): Promise<ConfigDiff> {
+    return this.request(
+      `/api/v1/customer-services/${encodeURIComponent(customerServiceId)}/config-diff`,
+      { method: 'GET' },
+      signal,
+    );
+  }
+
+  publishConfig(
+    customerServiceId: string,
+    signal?: AbortSignal,
+  ): Promise<ConfigRevision> {
+    return this.request(
+      `/api/v1/customer-services/${encodeURIComponent(customerServiceId)}/publish`,
+      { method: 'POST' },
+      signal,
+    );
+  }
+
+  async rollbackConfig(
+    customerServiceId: string,
+    revision: number,
+    expectedVersion: number,
+    signal?: AbortSignal,
+  ): Promise<{ instance: CustomerServiceInstance; revision: ConfigRevision }> {
+    try {
+      return await this.fetchWithTenant(
+        `/api/v1/customer-services/${encodeURIComponent(customerServiceId)}/rollback`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            revision,
+            expected_version: expectedVersion,
+          }),
+        },
+        signal,
+        async (response) => {
+          if (response.status === 409) {
+            throw new Error(CUSTOMER_SERVICE_VERSION_CONFLICT);
+          }
+          if (!response.ok) throw new Error('unsafe response');
+          return await response.json() as {
+            instance: CustomerServiceInstance;
+            revision: ConfigRevision;
+          };
         },
       );
     } catch (error) {

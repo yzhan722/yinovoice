@@ -4,11 +4,14 @@
       <div>
         <h1 class="title">知识库</h1>
         <p class="sub">
-          可切换客服音色，并编辑业务知识 Prompt。底层对话逻辑由平台管理，此处只读展示全文。
-          资料列表仍为演示框架，尚未接入实时语音检索增强。
+          业务知识条目会编译进当前实例的业务 Prompt，作为通话配置的事实来源。不检索 PDF，也不走实时 RAG。
+          保存或写入 Prompt 后，可用下方发布/回滚做配置快照。
         </p>
       </div>
-      <t-button theme="primary" @click="uploadVisible = true">上传</t-button>
+      <div class="head-actions">
+        <t-button variant="outline" :disabled="!instance" @click="openCreate">新增条目</t-button>
+        <t-button theme="primary" :disabled="!instance" @click="uploadVisible = true">上传 txt</t-button>
+      </div>
     </div>
 
     <div v-if="promptLoading" class="prompt-state card-block">加载配置…</div>
@@ -56,7 +59,7 @@
       <section class="prompt-card">
         <div class="prompt-head">
           <h2 class="prompt-title">业务知识 Prompt</h2>
-          <p class="prompt-hint">机构信息、业务知识与补充提示词；保存后下次通话生效。</p>
+          <p class="prompt-hint">机构信息与知识条目编译结果；标记之间的内容由「写入业务 Prompt」覆盖。</p>
         </div>
         <t-textarea
           v-model="tenantPrompt"
@@ -78,30 +81,78 @@
           </div>
         </div>
       </section>
+
+      <section class="prompt-card">
+        <div class="prompt-head">
+          <h2 class="prompt-title">配置发布</h2>
+          <p class="prompt-hint">
+            当前通话使用上面这份配置。发布会留下快照；回滚会恢复快照并提升版本号。
+            {{
+              diff?.published_revision
+                ? `最近发布为第 ${diff.published_revision} 版。`
+                : '尚未发布基线，请先发布当前配置。'
+            }}
+          </p>
+        </div>
+        <p v-if="!diffChanges.length" class="prompt-hint">与最近发布相比没有未发布改动。</p>
+        <ul v-else class="diff-list">
+          <li v-for="change in diffChanges" :key="change.field">
+            <strong>{{ change.field }}</strong>
+            ：{{ formatDiffValue(change.before) }} → {{ formatDiffValue(change.after) }}
+          </li>
+        </ul>
+        <div class="prompt-actions">
+          <div class="btn-group">
+            <t-select
+              v-model="rollbackRevision"
+              :options="revisionOptions"
+              placeholder="选择回滚版本"
+              style="width: 220px"
+            />
+            <t-button
+              variant="outline"
+              :disabled="!rollbackRevision"
+              :loading="rollbackSaving"
+              @click="rollbackConfig"
+            >
+              回滚
+            </t-button>
+          </div>
+          <t-button theme="primary" :loading="publishSaving" @click="publishConfig">
+            发布当前配置
+          </t-button>
+        </div>
+      </section>
     </template>
 
     <t-table
-      row-key="filId"
-      :data="files"
+      row-key="id"
+      :data="documents"
       :columns="columns"
       :loading="loading"
-      empty="暂无文件"
+      empty="暂无知识条目"
     >
-      <template #filSizeBytes="{ row }">{{ formatSize(row.filSizeBytes) }}</template>
-      <template #filExtStatus="{ row }">
-        <t-tag
-          :theme="row.filExtStatus === 'done' ? 'success' : 'warning'"
-          variant="light"
-          size="small"
-        >
-          {{ row.filExtStatus === 'done' ? '就绪' : '处理中' }}
-        </t-tag>
+      <template #updated_at="{ row }">{{ formatTime(row.updated_at) }}</template>
+      <template #op="{ row }">
+        <t-button size="small" variant="text" theme="primary" @click="openEdit(row)">编辑</t-button>
+        <t-button size="small" variant="text" theme="danger" @click="removeDoc(row)">删除</t-button>
       </template>
     </t-table>
+    <div class="table-actions">
+      <t-button
+        theme="primary"
+        variant="outline"
+        :disabled="!instance"
+        :loading="applySaving"
+        @click="applyKnowledge"
+      >
+        写入业务 Prompt
+      </t-button>
+    </div>
 
     <t-dialog
       v-model:visible="uploadVisible"
-      header="上传文件"
+      header="上传 txt"
       :confirm-btn="{ content: '上传', loading: uploading }"
       @confirm="doUpload"
     >
@@ -110,14 +161,30 @@
         theme="file"
         :auto-upload="false"
         :max="1"
-        accept=".pdf,.txt,.docx,.csv"
+        accept=".txt,text/plain"
+      />
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="editVisible"
+      :header="editingId ? '编辑知识条目' : '新增知识条目'"
+      :confirm-btn="{ content: '保存', loading: docSaving }"
+      @confirm="saveDocument"
+    >
+      <t-input v-model="editTitle" placeholder="标题" maxlength="80" />
+      <t-textarea
+        v-model="editBody"
+        placeholder="正文"
+        :maxlength="4000"
+        :autosize="{ minRows: 6, maxRows: 14 }"
+        style="margin-top: 12px"
       />
     </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
@@ -132,18 +199,35 @@ import {
   storeInstanceId,
 } from '@/api/platform/instanceSelection';
 import type {
+  ConfigDiffChange,
+  ConfigRevision,
   CustomerServiceInstance,
   TtsVoiceId,
 } from '@/api/platform/RealtimeVoiceService';
+
+interface KnowledgeDoc {
+  id: string;
+  title: string;
+  body: string;
+  updated_at: string;
+}
 
 const svc = new TenantKnowledgeService();
 const voiceSvc = new RealtimeVoiceService();
 const route = useRoute();
 const loading = ref(false);
 const uploading = ref(false);
-const files = ref<any[]>([]);
+const documents = ref<KnowledgeDoc[]>([]);
 const uploadVisible = ref(false);
 const uploadFiles = ref<any[]>([]);
+const editVisible = ref(false);
+const editingId = ref<string | null>(null);
+const editTitle = ref('');
+const editBody = ref('');
+const docSaving = ref(false);
+const applySaving = ref(false);
+const publishSaving = ref(false);
+const rollbackSaving = ref(false);
 
 const promptLoading = ref(false);
 const instance = ref<CustomerServiceInstance | null>(null);
@@ -152,25 +236,38 @@ const tenantPrompt = ref('');
 const tenantDraft = ref('');
 const ttsVoice = ref<TtsVoiceId>('longanqian');
 const voiceDraft = ref<TtsVoiceId>('longanqian');
-
 const tenantEditing = ref(false);
 const tenantSaving = ref(false);
 const voiceEditing = ref(false);
 const voiceSaving = ref(false);
 const selectedInstanceId = ref<string | null>(null);
+const diff = ref<{ published_revision: number | null; changes: ConfigDiffChange[] } | null>(null);
+const revisions = ref<ConfigRevision[]>([]);
+const rollbackRevision = ref<number | undefined>(undefined);
 
 const columns = [
-  { title: '文件名', colKey: 'filName', ellipsis: true },
-  { title: '大小', colKey: 'filSizeBytes', width: 100 },
-  { title: '状态', colKey: 'filExtStatus', width: 100 },
-  { title: '时间', colKey: 'filCreateTime', width: 180 },
+  { title: '标题', colKey: 'title', ellipsis: true },
+  { title: '更新时间', colKey: 'updated_at', width: 180 },
+  { title: '操作', colKey: 'op', width: 140 },
 ];
 
-function formatSize(n: number) {
-  if (!n) return '—';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+const diffChanges = computed(() => diff.value?.changes || []);
+const revisionOptions = computed(() =>
+  revisions.value.map((item) => ({
+    label: `第 ${item.revision} 版（${item.source}）`,
+    value: item.revision,
+  })),
+);
+
+function formatTime(value: string) {
+  if (!value) return '—';
+  return value.replace('T', ' ').slice(0, 19);
+}
+
+function formatDiffValue(value: unknown) {
+  if (value == null || value === '') return '（空）';
+  const text = String(value);
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
 }
 
 function applyInstance(current: CustomerServiceInstance) {
@@ -185,16 +282,39 @@ function applyInstance(current: CustomerServiceInstance) {
   voiceEditing.value = false;
 }
 
-async function load() {
+async function loadDocuments() {
+  if (!selectedInstanceId.value) {
+    documents.value = [];
+    return;
+  }
   loading.value = true;
   try {
-    const res: any = await svc.getList({});
-    files.value = res?.records || [];
+    const res = await svc.list(selectedInstanceId.value);
+    documents.value = res.items || [];
   } catch (_) {
-    files.value = [];
-    MessagePlugin.error('加载失败');
+    documents.value = [];
+    MessagePlugin.error('知识条目加载失败');
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadPublishState() {
+  if (!selectedInstanceId.value) {
+    diff.value = null;
+    revisions.value = [];
+    return;
+  }
+  try {
+    const [nextDiff, nextRevisions] = await Promise.all([
+      voiceSvc.getConfigDiff(selectedInstanceId.value),
+      voiceSvc.listConfigRevisions(selectedInstanceId.value),
+    ]);
+    diff.value = nextDiff;
+    revisions.value = nextRevisions.items || [];
+  } catch (_) {
+    diff.value = null;
+    revisions.value = [];
   }
 }
 
@@ -214,6 +334,7 @@ async function loadPrompt() {
     }
     const current = await voiceSvc.getCustomerService(selectedInstanceId.value);
     applyInstance(current);
+    await Promise.all([loadDocuments(), loadPublishState()]);
   } catch (_) {
     instance.value = null;
     MessagePlugin.error('配置加载失败');
@@ -235,7 +356,6 @@ function cancelVoiceEdit() {
 async function persistUpdate(partial: {
   tenant_prompt?: string;
   voice?: CustomerServiceInstance['voice'];
-  successMessage: string;
 }) {
   const current = instance.value;
   if (!current) return null;
@@ -248,7 +368,13 @@ async function persistUpdate(partial: {
     tenant_prompt: partial.tenant_prompt ?? current.tenant_prompt,
     voice: partial.voice ?? current.voice,
     response: current.response,
+    insights_profile: current.insights_profile ?? null,
   });
+}
+
+async function afterConfigChanged(updated: CustomerServiceInstance) {
+  applyInstance(updated);
+  await loadPublishState();
 }
 
 async function saveTenantPrompt() {
@@ -260,21 +386,12 @@ async function saveTenantPrompt() {
   }
   tenantSaving.value = true;
   try {
-    const updated = await persistUpdate({
-      tenant_prompt: tenantPrompt.value,
-      successMessage: '',
-    });
+    const updated = await persistUpdate({ tenant_prompt: tenantPrompt.value });
     if (!updated) return;
-    applyInstance(updated);
+    await afterConfigChanged(updated);
     MessagePlugin.success('业务 Prompt 已保存，下次通话生效');
   } catch (error) {
-    const message = error instanceof Error ? error.message : '';
-    if (message === CUSTOMER_SERVICE_VERSION_CONFLICT) {
-      MessagePlugin.warning(CUSTOMER_SERVICE_VERSION_CONFLICT);
-      await loadPrompt();
-    } else {
-      MessagePlugin.error(message || '保存失败');
-    }
+    await handleConfigError(error, '保存失败');
   } finally {
     tenantSaving.value = false;
   }
@@ -287,21 +404,122 @@ async function saveVoice() {
   try {
     const updated = await persistUpdate({
       voice: { ...current.voice, tts_voice: ttsVoice.value },
-      successMessage: '',
     });
     if (!updated) return;
-    applyInstance(updated);
+    await afterConfigChanged(updated);
     MessagePlugin.success('客服音色已保存，下次通话生效');
   } catch (error) {
-    const message = error instanceof Error ? error.message : '';
-    if (message === CUSTOMER_SERVICE_VERSION_CONFLICT) {
-      MessagePlugin.warning(CUSTOMER_SERVICE_VERSION_CONFLICT);
-      await loadPrompt();
-    } else {
-      MessagePlugin.error(message || '保存失败');
-    }
+    await handleConfigError(error, '保存失败');
   } finally {
     voiceSaving.value = false;
+  }
+}
+
+async function handleConfigError(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : '';
+  if (message === CUSTOMER_SERVICE_VERSION_CONFLICT) {
+    MessagePlugin.warning(CUSTOMER_SERVICE_VERSION_CONFLICT);
+    await loadPrompt();
+    return;
+  }
+  MessagePlugin.error(message || fallback);
+}
+
+function openCreate() {
+  editingId.value = null;
+  editTitle.value = '';
+  editBody.value = '';
+  editVisible.value = true;
+}
+
+function openEdit(row: KnowledgeDoc) {
+  editingId.value = row.id;
+  editTitle.value = row.title;
+  editBody.value = row.body;
+  editVisible.value = true;
+}
+
+async function saveDocument() {
+  if (!selectedInstanceId.value) return false;
+  if (!editTitle.value.trim() || !editBody.value.trim()) {
+    MessagePlugin.warning('请填写标题和正文');
+    return false;
+  }
+  docSaving.value = true;
+  try {
+    const payload = { title: editTitle.value.trim(), body: editBody.value.trim() };
+    if (editingId.value) {
+      await svc.update(selectedInstanceId.value, editingId.value, payload);
+    } else {
+      await svc.create(selectedInstanceId.value, payload);
+    }
+    editVisible.value = false;
+    await loadDocuments();
+    MessagePlugin.success('知识条目已保存');
+  } catch (_) {
+    MessagePlugin.error('保存失败');
+  } finally {
+    docSaving.value = false;
+  }
+  return true;
+}
+
+async function removeDoc(row: KnowledgeDoc) {
+  if (!selectedInstanceId.value) return;
+  try {
+    await svc.remove(selectedInstanceId.value, row.id);
+    await loadDocuments();
+    MessagePlugin.success('已删除');
+  } catch (_) {
+    MessagePlugin.error('删除失败');
+  }
+}
+
+async function applyKnowledge() {
+  const current = instance.value;
+  if (!current || !selectedInstanceId.value) return;
+  applySaving.value = true;
+  try {
+    const updated = await svc.apply(selectedInstanceId.value, current.version);
+    await afterConfigChanged(updated);
+    MessagePlugin.success('已写入业务 Prompt，下次通话生效');
+  } catch (error) {
+    await handleConfigError(error, '写入失败');
+  } finally {
+    applySaving.value = false;
+  }
+}
+
+async function publishConfig() {
+  if (!selectedInstanceId.value) return;
+  publishSaving.value = true;
+  try {
+    await voiceSvc.publishConfig(selectedInstanceId.value);
+    await loadPublishState();
+    MessagePlugin.success('已发布当前配置快照');
+  } catch (_) {
+    MessagePlugin.error('发布失败');
+  } finally {
+    publishSaving.value = false;
+  }
+}
+
+async function rollbackConfig() {
+  const current = instance.value;
+  if (!current || !selectedInstanceId.value || !rollbackRevision.value) return;
+  rollbackSaving.value = true;
+  try {
+    const result = await voiceSvc.rollbackConfig(
+      selectedInstanceId.value,
+      rollbackRevision.value,
+      current.version,
+    );
+    await afterConfigChanged(result.instance);
+    MessagePlugin.success('已回滚并写入当前配置');
+  } catch (error) {
+    await handleConfigError(error, '回滚失败');
+  } finally {
+    rollbackSaving.value = false;
   }
 }
 
@@ -311,13 +529,21 @@ async function doUpload() {
     MessagePlugin.warning('请选择文件');
     return false;
   }
+  const name = String(file.name || '');
+  if (!name.toLowerCase().endsWith('.txt')) {
+    MessagePlugin.warning('仅支持 .txt 文本');
+    return false;
+  }
+  if (!selectedInstanceId.value) return false;
   uploading.value = true;
   try {
-    await svc.uploadFile(file);
-    MessagePlugin.success('已上传（演示）');
+    const body = await file.text();
+    const title = name.replace(/\.txt$/i, '').trim() || '未命名条目';
+    await svc.create(selectedInstanceId.value, { title, body });
+    MessagePlugin.success('已上传并保存为知识条目');
     uploadVisible.value = false;
     uploadFiles.value = [];
-    await load();
+    await loadDocuments();
   } catch (_) {
     MessagePlugin.error('上传失败');
   } finally {
@@ -327,7 +553,6 @@ async function doUpload() {
 }
 
 onMounted(() => {
-  void load();
   void loadPrompt();
 });
 </script>
@@ -346,6 +571,12 @@ onMounted(() => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.head-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .title {
@@ -425,11 +656,26 @@ onMounted(() => {
 .btn-group {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 .char-count {
   font-size: 12px;
   color: var(--demo-muted);
+}
+
+.diff-list {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--demo-ink);
+  line-height: 1.5;
+}
+
+.table-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 12px 0 24px;
 }
 
 :deep(.t-table) {

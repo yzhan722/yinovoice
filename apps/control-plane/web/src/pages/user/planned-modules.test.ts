@@ -28,9 +28,13 @@ vi.mock('@/api/platform', () => ({
     cancel(...args: unknown[]) { return cancelAppointment(...args); }
   },
   TenantKnowledgeService: class {
-    getList() {
-      return Promise.resolve({ records: [] });
+    list() {
+      return Promise.resolve({ items: [], total: 0 });
     }
+    create() { return Promise.resolve({}); }
+    update() { return Promise.resolve({}); }
+    remove() { return Promise.resolve(); }
+    apply() { return Promise.resolve({}); }
   },
   TenantCallbackService: class {
     list(...args: unknown[]) { return listCallbacks(...args); }
@@ -82,6 +86,18 @@ vi.mock('@/api/platform', () => ({
     }
     updateCustomerService() {
       return Promise.resolve({});
+    }
+    getConfigDiff() {
+      return Promise.resolve({ current_version: 1, published_revision: 1, changes: [] });
+    }
+    listConfigRevisions() {
+      return Promise.resolve({ items: [], total: 0 });
+    }
+    publishConfig() {
+      return Promise.resolve({});
+    }
+    rollbackConfig() {
+      return Promise.resolve({ instance: {}, revision: {} });
     }
   },
 }));
@@ -174,7 +190,7 @@ describe('tenant appointments and callbacks are live-backed', () => {
     expect(markDone).toHaveBeenCalledWith('cb-1');
   });
 
-  it('labels knowledge base files as unconnected and exposes business prompt editor', async () => {
+  it('exposes knowledge documents, prompt editor, and config publish', async () => {
     const wrapper = mount(KnowledgeBasePage, {
       global: {
         stubs: {
@@ -185,13 +201,16 @@ describe('tenant appointments and callbacks are live-backed', () => {
           't-tag': true,
           't-textarea': true,
           't-select': true,
+          't-input': true,
         },
       },
     });
     await flushPromises();
+    await flushPromises();
 
-    expect(wrapper.text()).toContain('可切换客服音色');
+    expect(wrapper.text()).toContain('客服音色');
     expect(wrapper.text()).toContain('业务知识 Prompt');
+    expect(wrapper.text()).toContain('配置发布');
   });
 
   it('loads telephony numbers from the Platform API', async () => {

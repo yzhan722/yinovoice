@@ -59,6 +59,9 @@ export const useUserStore = defineStore('user', {
             this.userToken = token;
             this.userTokenExpireTime = tokenExpireTime;
             this.userAccount = result?.account || account;
+            if (result?.tenant_id) {
+                sessionStorage.setItem('yinoTenantId', String(result.tenant_id));
+            }
         },
         /** 用户端登出：清除 userToken */
         userLogout() {
@@ -66,6 +69,7 @@ export const useUserStore = defineStore('user', {
             this.userTokenExpireTime = 0;
             this.userAccount = '';
             sessionStorage.removeItem('userToken');
+            sessionStorage.removeItem('yinoTenantId');
         },
         /** 请求 profile 接口校验用户 token 是否有效，并拉取用户信息（供路由守卫用） */
         async getUserProfile() {
@@ -102,7 +106,9 @@ export const useUserStore = defineStore('user', {
                 return {
                     ...result,
                     code: 200,
-                    name: result.useName,
+                    name: (result as { useName?: string; userNickname?: string; userAccount?: string }).useName
+                        || result.userNickname
+                        || result.userAccount,
                     roles: ['all'], // 前端权限模型使用 如果使用请配置modules/permission-fe.ts使用
                 };
             };

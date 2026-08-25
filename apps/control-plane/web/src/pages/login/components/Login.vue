@@ -64,11 +64,11 @@ const isAdminLogin = computed(
 );
 
 const shellHint = computed(() => {
-  if (!shellMockEnabled()) return '';
   if (isAdminLogin.value) {
+    if (!shellMockEnabled()) return '';
     return `演示账号：${SHELL_ACCOUNTS.operator.account} / ${SHELL_ACCOUNTS.operator.password}（运营端非本阶段重点）`;
   }
-  return `演示账号：${SHELL_ACCOUNTS.tenant.account} / ${SHELL_ACCOUNTS.tenant.password} · 路径 A 租户工作台`;
+  return `演示账号：${SHELL_ACCOUNTS.tenant.account} / ${SHELL_ACCOUNTS.tenant.password} · 租户工作台`;
 });
 
 const FORM_RULES: any = {
