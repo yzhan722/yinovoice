@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Yino Ended Call Ingest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "channel",
+    "callId",
+    "eventId",
+    "startedAt",
+    "endedAt",
+    "durationSeconds",
+    "transcript",
+    "summary",
+    "recordingUrl"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "channel": {
+      "const": "yino"
+    },
+    "callId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "not": {
+        "enum": [
+          ".",
+          ".."
+        ]
+      }
+    },
+    "eventId": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "startedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "endedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "durationSeconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 86400
+    },
+    "transcript": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "recordingUrl": {
+      "type": "null"
+    }
+  },
+  "anyOf": [
+    {
+      "properties": {
+        "transcript": {
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "summary": {
+          "minLength": 1
+        }
+      }
+    }
+  ]
+}

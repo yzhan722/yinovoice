@@ -1,0 +1,20 @@
+{
+  "sender": "yinoagent@gmail.com",
+  "profiles": {
+    "lucaplus": {
+      "roles": {
+        "customer-report-primary": ["primary@example.invalid"],
+        "customer-report-cc": ["cc@example.invalid"],
+        "customer-report-support": ["support@example.invalid"],
+        "quality-report-internal": ["quality@example.invalid"]
+      }
+    },
+    "inp-group": {
+      "roles": {
+        "customer-report-primary": ["primary@example.invalid"],
+        "customer-report-cc": ["cc@example.invalid"],
+        "quality-report-internal": ["quality@example.invalid"]
+      }
+    }
+  }
+}

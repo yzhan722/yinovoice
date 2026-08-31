@@ -1,0 +1,33 @@
+[Unit]
+Description=VAPI Call Insights API and analysis worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vapi-call-insights
+Group=vapi-call-insights
+WorkingDirectory=/opt/vapi-call-insights/current
+EnvironmentFile=/etc/vapi-call-insights/api.env
+ExecStart=/usr/bin/npm run serve
+Restart=on-failure
+RestartSec=5s
+UMask=0007
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectProc=invisible
+ProcSubset=pid
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/vapi-call-insights /var/log/vapi-call-insights
+StandardOutput=append:/var/log/vapi-call-insights/api.log
+StandardError=append:/var/log/vapi-call-insights/api.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+{
+  "slug": "lucaplus",
+  "displayName": "LucaPlus",
+  "assistantName": "Luca AI",
+  "vapiAssistantId": "d10d041a-3aad-4636-ba4f-9cab48bb6ac0",
+  "timezone": "Australia/Sydney",
+  "brandName": "LucaPlus",
+  "analysisLanguage": "en",
+  "qualityLanguage": "zh",
+  "companyAliases": ["LucaPlus", "Luca Plus"],
+  "legacyCustomerReportRecipients": [
+    "customer-report-primary",
+    "customer-report-cc",
+    "customer-report-support"
+  ],
+  "legacyQualityReportRecipients": ["quality-report-internal"]
+}
