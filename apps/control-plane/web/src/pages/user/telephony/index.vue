@@ -60,7 +60,7 @@ async function load() {
       voice.listCustomerServices(),
     ]);
     list.value = Array.isArray(numbers) ? numbers : numbers.items || [];
-    instances.value = services.items || services.list || [];
+    instances.value = services.items || [];
     if (!form.value.instanceId && instances.value[0]) {
       form.value.instanceId = instances.value[0].id;
     }
