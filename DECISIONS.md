@@ -51,11 +51,22 @@
 | 身份 | Demo 操作员 HMAC 登录（`demo`/`demo123`）；测试与 voice-agent 仍可用 `X-Tenant-ID`；不做计费/角色矩阵 |
 | 部署 | 不自动部署生产；未经用户授权不 commit / push |
 
+## 2026-08-31 Monorepo 合仓与两人并行分支
+
+| 决策 | 内容 |
+|------|------|
+| 合仓 | Call Insights 真正应用迁入 `apps/call-insights`；Git 主仓为 `yzhan722/yinovoice` |
+| 运行时 | 合仓 ≠ 合并进程或数据库。Yino API（Python/PostgreSQL）与 Insights（Node/SQLite）继续独立；异步 HTTP `POST /v1/ingest/:profile` 故障边界保持 |
+| 旧分仓 | 2026-08-25「必须保持独立 Git 仓库」已被本决策替代（superseded），不是删除旧仓 |
+| 长期分支 | `dev/realtime-telephony`（DEV-A）与 `dev/platform-insights`（DEV-B）从同一 `main` SHA 创建；日常 feat 从对应 `dev/*` 开出，不直接从 `main` 开 |
+| CI | 根 `.github/workflows/ci.yml` 按 api / voice-agent / web / call-insights / contracts 分 Job；禁止真实 secrets 与生产网络 |
+| 未做 | 不删除/归档 `vapi-call-insights` 旧仓；不部署 Stage/Production；不切真实 PSTN |
+
 ## 2026-08-25 Call Insights 渠道契约
 
 | 决策 | 内容 |
 |------|------|
-| 分仓 | Yino 与 Insights 保持独立仓库，不合并、不嵌套 `.git` |
+| 分仓 | **superseded 2026-08-31**：应用代码并入 `yinovoice` Monorepo；独立仓库不再作为长期方向。契约、进程与数据库边界不变 |
 | 入站 | Insights 保留 `POST /v1/vapi/:profile`；Yino 走独立 `POST /v1/ingest/:profile` + `INGEST_AUTH_TOKEN` |
 | 绑定 | 助手 `insights_profile` 为空则不投递；未知 slug 由 Insights 4xx，Yino 记永久失败 |
 | 邮件 | `channel=yino` 默认不建 mail outbox；仅 profile `mailEnabled: true` 才发。LucaPlus / INP JSON 不加该字段 |

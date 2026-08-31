@@ -30,7 +30,10 @@
 | 路径 | 说明 |
 |------|------|
 | `apps/control-plane/` | API + Web |
-| `apps/runtime/` | voice-agent |
+| `apps/runtime/` | voice-agent（Realtime；DEV-A） |
+| `apps/call-insights/` | Call Insights 独立服务（DEV-B） |
+| `packages/` | 可复用库（platform-core）与共享契约 `packages/contracts` |
+| `integrations/` | 外部系统模板 |
 | `packages/` | 可复用库（如 platform-core） |
 | `integrations/` | 外部系统模板 |
 | `deploy/` | 部署包（无真实密钥） |

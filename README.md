@@ -12,10 +12,12 @@ YINO AI Voice（Yino Voice）主仓库：以 Yino 为业务与配置的唯一事
 
 | 路径 | 角色 |
 |------|------|
-| `apps/control-plane/api` | Platform API（配置、LiveKit token、Demo 通话记录） |
+| `apps/control-plane/api` | Platform API（配置、LiveKit token、Demo 通话记录、排期/回拨、Insights 投递） |
 | `apps/control-plane/web` | 主前端（Vue 3 + Vite + TDesign） |
-| `apps/runtime/voice-agent` | LiveKit Agent / Qwen Audio Realtime |
+| `apps/runtime/voice-agent` | LiveKit Agent / Qwen Audio Realtime（独立 Python 进程） |
+| `apps/call-insights` | Call Insights（独立 Node/Fastify 进程，SQLite；不在实时通话关键路径） |
 | `packages/platform-core` | 知识库等平台核心适配（来自 LAN 增量） |
+| `packages/contracts/ended-call` | Yino → Insights ended-call v1 共享契约与 fixtures |
 | `integrations/` | 外部系统集成模板（如 RAGFlow） |
 | `deploy/` | 部署包与运维脚本（不含真实密钥） |
 | `docs/` | 架构、迁移、平台文档 |
@@ -67,9 +69,20 @@ cd /d E:\Repos\yinovoice\apps\runtime\voice-agent
 
 cd /d E:\Repos\yinovoice\apps\control-plane\web
 pnpm test
+pnpm typecheck
+pnpm build
+
+cd /d E:\Repos\yinovoice\apps\call-insights
+npm ci
+npm test
+npm run typecheck
 ```
 
-（需先完成依赖安装；本轮迁移不强制已跑通全部测试。）
+Windows 一键入口：`powershell -ExecutionPolicy Bypass -File scripts\test_all.ps1`。
+
+GitHub Actions 在 `.github/workflows/ci.yml` 按服务分 Job（不使用真实 secrets / SMTP / VAPI / DeepSeek / 生产库）。
+
+合仓不等于运行时合并：Yino API 仍是 Python + PostgreSQL；Call Insights 仍是 Node + SQLite；两者只通过 `POST /v1/ingest/:profile` 异步联通。
 
 ## 文档入口
 
