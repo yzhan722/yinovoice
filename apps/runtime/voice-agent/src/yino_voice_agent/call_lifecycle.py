@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -10,8 +11,17 @@ from uuid import UUID
 import httpx
 
 from .runtime_config import DispatchMetadata
+from .session_trace import SessionTrace
 
 logger = logging.getLogger(__name__)
+
+
+def _finish_rank(status: str, ended_reason: str) -> int:
+    if status == "failed" or ended_reason == "agent_error":
+        return 2
+    if ended_reason == "user_hangup":
+        return 1
+    return 0
 
 
 async def _success_json(response: Any) -> dict[str, Any]:
@@ -33,12 +43,23 @@ def direction_for_channel(channel: str) -> str:
 class CallLifecycleClient:
     """Best-effort call session writer. Network failures never raise."""
 
-    def __init__(self, http: httpx.AsyncClient, tenant_id: UUID) -> None:
+    def __init__(
+        self,
+        http: httpx.AsyncClient,
+        tenant_id: UUID,
+        *,
+        trace: SessionTrace | None = None,
+    ) -> None:
         self._http = http
         self._tenant_id = tenant_id
+        self._trace = trace
         self.record_id: UUID | None = None
         self._start_payload: dict[str, Any] | None = None
         self._pending_messages: list[dict[str, Any]] = []
+        self._finish_lock = asyncio.Lock()
+        self._finish_http_started = False
+        self._finish_committed = False
+        self._finish_selected: tuple[str, str] | None = None
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -61,6 +82,8 @@ class CallLifecycleClient:
         if metadata.provider_call_id is not None:
             payload["provider_call_id"] = metadata.provider_call_id
         self._start_payload = payload
+        if self._trace is not None:
+            self._trace.mark("session_start")
         await self._post_start(payload)
 
     async def append_final(self, role: str, text: str, sequence: int) -> None:
@@ -70,12 +93,45 @@ class CallLifecycleClient:
             return
         await self._post_message(message)
 
+    def _select_finish_outcome(self, candidate: tuple[str, str]) -> None:
+        if self._finish_selected is None or _finish_rank(*candidate) > _finish_rank(
+            *self._finish_selected
+        ):
+            self._finish_selected = candidate
+
     async def finish(
         self,
         *,
         status: str = "completed",
         ended_reason: str = "completed",
     ) -> None:
+        candidate = (status, ended_reason)
+        async with self._finish_lock:
+            if self._finish_committed:
+                return
+            self._select_finish_outcome(candidate)
+            if self._finish_http_started:
+                return
+        await asyncio.sleep(0)
+        async with self._finish_lock:
+            if self._finish_committed:
+                return
+            self._select_finish_outcome(candidate)
+            if self._finish_http_started:
+                return
+            self._finish_http_started = True
+            selected_status, selected_reason = self._finish_selected or candidate
+        if self._trace is not None:
+            self._trace.mark("finish_start")
+        try:
+            await self._send_finish(selected_status, selected_reason)
+        finally:
+            async with self._finish_lock:
+                self._finish_committed = True
+            if self._trace is not None:
+                self._trace.mark("finish_complete")
+
+    async def _send_finish(self, status: str, ended_reason: str) -> None:
         if self.record_id is None and self._start_payload is not None:
             await self._post_start(self._start_payload)
         pending = list(self._pending_messages)

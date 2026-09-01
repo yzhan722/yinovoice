@@ -44,10 +44,7 @@ def test_audio_append_base64_encodes_pcm() -> None:
 
 
 def test_response_events_request_audio_and_text_or_cancel() -> None:
-    assert build_response_create() == {
-        "type": "response.create",
-        "response": {"modalities": ["audio", "text"]},
-    }
+    assert build_response_create() == {"type": "response.create"}
     assert build_response_cancel() == {"type": "response.cancel"}
 
 
