@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily VAPI Call Insights PII retention
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

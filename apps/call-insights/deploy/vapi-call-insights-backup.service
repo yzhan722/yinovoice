@@ -1,0 +1,15 @@
+[Unit]
+Description=Back up VAPI Call Insights SQLite runtime
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/vapi-call-insights/current/scripts/backup-runtime.sh
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/vapi-call-insights

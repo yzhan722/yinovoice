@@ -1,0 +1,19 @@
+{
+  "slug": "inp-group",
+  "displayName": "INP Group",
+  "assistantName": "INP AI",
+  "vapiAssistantId": "86279b2f-3b5b-4a3e-83d2-d6b539f051e0",
+  "vapiAcceptedAssistantIds": [
+    "61d3dd3e-a9f1-463b-89fa-102ec2aaa281"
+  ],
+  "timezone": "Australia/Sydney",
+  "brandName": "INP Group",
+  "analysisLanguage": "en",
+  "qualityLanguage": "zh",
+  "companyAliases": ["INP Group", "INP"],
+  "legacyCustomerReportRecipients": [
+    "customer-report-primary",
+    "customer-report-cc"
+  ],
+  "legacyQualityReportRecipients": ["quality-report-internal"]
+}

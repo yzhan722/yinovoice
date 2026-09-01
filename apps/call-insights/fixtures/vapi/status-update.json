@@ -1,0 +1,8 @@
+{
+  "message": {
+    "type": "status-update",
+    "status": "in-progress",
+    "timestamp": 1786600000000,
+    "call": { "id": "call_demo_001" }
+  }
+}

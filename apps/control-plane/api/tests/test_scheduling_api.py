@@ -169,6 +169,86 @@ def test_availability_skips_lunch_and_occupied_slot(ids) -> None:
     assert morning["slot_start_utc"] in restored_starts
 
 
+def test_modify_conflict_and_cancelled_is_terminal(ids) -> None:
+    client, _ = _client(ids)
+    offering_id = _seed_schedule(client, ids)
+    headers = _headers(ids.tenant_id)
+    day = date(2026, 9, 1)
+    listed = client.get(
+        "/api/v1/availability",
+        headers=headers,
+        params={
+            "voice_agent_instance_id": str(ids.instance_id),
+            "service_offering_id": offering_id,
+            "date_from": day.isoformat(),
+            "date_to": day.isoformat(),
+        },
+    )
+    morning = next(
+        item
+        for item in listed.json()["items"]
+        if "T09:00:00" in item["slot_start_local"]
+    )
+    later = next(
+        item
+        for item in listed.json()["items"]
+        if "T10:00:00" in item["slot_start_local"]
+    )
+    first = client.post(
+        "/api/v1/appointments",
+        headers=headers,
+        json={
+            "patient_name": "王芳",
+            "phone": "13800138000",
+            "service": "洁牙",
+            "slot_start": morning["slot_start_utc"],
+            "slot_end": morning["slot_end_utc"],
+            "voice_agent_instance_id": str(ids.instance_id),
+            "service_offering_id": offering_id,
+        },
+    )
+    second = client.post(
+        "/api/v1/appointments",
+        headers=headers,
+        json={
+            "patient_name": "李明",
+            "phone": "13900139000",
+            "service": "洁牙",
+            "slot_start": later["slot_start_utc"],
+            "slot_end": later["slot_end_utc"],
+            "voice_agent_instance_id": str(ids.instance_id),
+            "service_offering_id": offering_id,
+        },
+    )
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    conflict = client.patch(
+        f"/api/v1/appointments/{second.json()['id']}",
+        headers=headers,
+        json={
+            "slot_start": morning["slot_start_utc"],
+            "slot_end": morning["slot_end_utc"],
+        },
+    )
+    assert conflict.status_code == 409
+    cancelled = client.delete(
+        f"/api/v1/appointments/{first.json()['id']}",
+        headers=headers,
+    )
+    assert cancelled.status_code == 204
+    again = client.delete(
+        f"/api/v1/appointments/{first.json()['id']}",
+        headers=headers,
+    )
+    assert again.status_code == 204
+    blocked = client.patch(
+        f"/api/v1/appointments/{first.json()['id']}",
+        headers=headers,
+        json={"notes": "should not revive"},
+    )
+    assert blocked.status_code == 409
+
+
 def test_closed_exception_hides_day(ids) -> None:
     client, _ = _client(ids)
     offering_id = _seed_schedule(client, ids)

@@ -1,3 +1,5 @@
+import json
+import re
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -173,3 +175,55 @@ def test_invalid_e164_is_rejected(ids) -> None:
         },
     )
     assert response.status_code == 422
+
+
+def test_lookup_is_inbound_destination_without_secrets(ids) -> None:
+    client = _client(ids)
+    created = client.post(
+        "/api/v1/phone-numbers",
+        headers={"X-Tenant-ID": str(ids.tenant_id)},
+        json={
+            "e164_number": "+61400000006",
+            "voice_agent_instance_id": str(ids.instance_id),
+            "inbound_trunk_id": "ST_demo_trunk",
+            "dispatch_rule_id": "SDR_demo_rule",
+        },
+    )
+    assert created.status_code == 201, created.text
+    lookup = client.get("/api/v1/phone-numbers/lookup?number=%2B61400000006")
+    assert lookup.status_code == 200
+    body = lookup.json()
+    assert body["tenant_id"] == str(ids.tenant_id)
+    assert body["voice_agent_instance_id"] == str(ids.instance_id)
+    assert body["e164_number"] == "+61400000006"
+    assert body["provider"] == "livekit_sip"
+    assert body["enabled"] is True
+    secret_pattern = re.compile(r"(secret|password|token|api_key)", re.I)
+    secret_keys = [key for key in body if secret_pattern.search(key)]
+    assert secret_keys == []
+    blob = json.dumps(body)
+    assert not re.search(r"(sk-|Bearer\s+)", blob)
+
+
+def test_list_is_tenant_isolated(ids) -> None:
+    client = _client(ids)
+    created = client.post(
+        "/api/v1/phone-numbers",
+        headers={"X-Tenant-ID": str(ids.tenant_id)},
+        json={
+            "e164_number": "+61400000007",
+            "voice_agent_instance_id": str(ids.instance_id),
+        },
+    )
+    assert created.status_code == 201
+    other = client.get(
+        "/api/v1/phone-numbers",
+        headers={"X-Tenant-ID": str(ids.other_tenant_id)},
+    )
+    assert other.status_code == 200
+    assert other.json()["total"] == 0
+    other_get = client.get(
+        f"/api/v1/phone-numbers/{created.json()['id']}",
+        headers={"X-Tenant-ID": str(ids.other_tenant_id)},
+    )
+    assert other_get.status_code == 404

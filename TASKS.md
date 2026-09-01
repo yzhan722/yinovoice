@@ -1,5 +1,15 @@
 # TASKS
 
+## 两人并行 Sprint 1（2026-08-31）
+
+- [x] B0 / B-S1.1：Call Insights 迁入 `apps/call-insights`（本工作树；未 commit）
+- [x] B-S1.2：根 CI baseline + `scripts/test_all.ps1` + ended-call 契约 fixtures
+- [x] B-S1.3：号码绑定 inbound lookup 产品化测试（E.164 / 租户隔离 / 无 secret 字段；增强现有 API，未新建重复模型）
+- [x] B-S1.4：预约 modify 冲突 + cancel 幂等 + 禁止修改已取消预约
+- [ ] B 短任务合回 `dev/platform-insights`（需用户授权 commit/push）
+- [ ] Integrator 验收后再合 `main`
+- [ ] DEV-A Sprint 1（lifecycle / SIP adapter / tool client）— 本窗口不实现
+
 ## 商业 MVP 入站电话闭环（2026-08-25）
 
 - [x] M1：E.164 号码映射、lookup、SIP dry-run 生成器
@@ -15,7 +25,7 @@
 - [x] Demo 操作员登录（HMAC token）+ 保留 `X-Tenant-ID` 给测试与 voice-agent；Bearer 与 Header 不一致则 403
 - [x] 实例配置快照：创建自动基线、发布、Diff、按版本回滚（不拆 draft/live 调度）
 - [x] 文本知识条目编译进 `tenant_prompt` 标记区；`.txt` 上传；不接 RAG / PDF
-- [x] Call Insights 渠道契约（分仓）：Yino 绑定 `insights_profile` 后异步 POST `/v1/ingest/:profile`；Insights 保留 VAPI webhook；默认不发 Yino 邮件。代码完成，未部署、未 commit
+- [x] Call Insights 渠道契约（分仓时已落地；2026-08-31 起应用代码迁入 Monorepo，契约不重写）。代码完成，未部署、未 commit
 - [x] Runtime 成功挂断调用 `finish`（等 LiveKit close / job shutdown；失败路径仍 `agent_error`）
 - [ ] 真实 PSTN / LiveKit SIP trunk（**已搁置**：先完成网页与后处理闭环；国内 +86 不能靠 Twilio）
 - [ ] 真实 LiveKit Egress → S3

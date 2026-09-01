@@ -1,0 +1,18 @@
+{
+  "message": {
+    "type": "end-of-call-report",
+    "timestamp": 1786600000000,
+    "call": {
+      "id": "call_demo_001",
+      "assistantId": "d10d041a-3aad-4636-ba4f-9cab48bb6ac0",
+      "customer": { "number": "+61000000000" }
+    },
+    "startedAt": "2026-08-13T01:00:00.000Z",
+    "endedAt": "2026-08-13T01:02:30.000Z",
+    "transcript": "Customer: I need an invoice workflow.\nAssistant: I can help.",
+    "summary": "Customer asked about invoice automation.",
+    "artifact": {
+      "recordingUrl": "https://example.invalid/recordings/demo.mp3"
+    }
+  }
+}

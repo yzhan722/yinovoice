@@ -1,5 +1,14 @@
 # PROJECT_STATUS
 
+## 2026-08-31 Call Insights Monorepo（代码在 `feat/b-monorepo-insights`，未 commit / 未部署）
+
+- **合仓**：`apps/vapi-call-insights`（来源仓 `yzhan722/vapi-call-insights` @ `762eeb2`）以 Git 跟踪内容迁入 `apps/call-insights`。未迁 n8n export 工具、无嵌套 `.git`、无真实 `.env`/DB/音频。
+- **运行时边界未改**：`POST /v1/vapi/:profile` 与 `POST /v1/ingest/:profile` 保持；独立 `INGEST_AUTH_TOKEN`；Yino `channel=yino` 默认不建邮件 Outbox；`mailEnabled=true` 才 opt-in；`recordingUrl` 仍为 null。
+- **共享契约**：`packages/contracts/ended-call`（schema + fixtures）；API 与 Insights 测试绑定同一 fixtures。
+- **CI / 本地入口**：`.github/workflows/ci.yml`；`scripts/test_all.ps1`。
+- **分支**：本工作树在 `feat/b-monorepo-insights`（跟踪 `origin/dev/platform-insights`）。Agent 未 commit、未 push、未部署。旧仓未删除。
+- **已知基线**：本机全新安装 `apps/runtime/voice-agent` 时，`livekit-agents` 解析到 1.7.1，有 6 个既有 realtime 测试失败。DEV-B 不修改 voice-agent 测试或依赖以迎合 CI。
+
 ## 2026-08-25 Call Insights 渠道契约（代码已落地，未部署）
 
 - **Insights**（独立仓 `n8n-workflow-export/apps/vapi-call-insights`）：`POST /v1/ingest/:profile` + `INGEST_AUTH_TOKEN`；`Call.channel` 为 `vapi|yino`；yino 默认不建邮件 outbox。VAPI 路由与 lucaplus/inp-group 收件人文件未改。

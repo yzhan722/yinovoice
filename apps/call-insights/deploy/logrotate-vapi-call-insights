@@ -1,0 +1,11 @@
+/var/log/vapi-call-insights/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su vapi-call-insights vapi-call-insights
+    create 0600 vapi-call-insights vapi-call-insights
+}

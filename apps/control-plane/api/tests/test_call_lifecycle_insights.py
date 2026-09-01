@@ -85,6 +85,32 @@ def test_finish_without_binding_does_not_enqueue(ids) -> None:
     assert repo.all() == []
 
 
+def test_finish_with_empty_messages_does_not_enqueue(ids) -> None:
+    repo = InMemoryInsightsDispatchRepository()
+    instance = CustomerServiceInstance.demo(
+        instance_id=ids.instance_id,
+        tenant_id=ids.tenant_id,
+    ).model_copy(update={"insights_profile": "demo-clinic"})
+    client = _client(ids, instance=instance, insights=repo)
+    started = client.post(
+        "/api/v1/call-sessions/start",
+        headers=_headers(ids.tenant_id),
+        json=_start_payload(ids),
+    )
+    assert started.status_code == 201, started.text
+    finished = client.post(
+        f"/api/v1/call-sessions/{started.json()['id']}/finish",
+        headers=_headers(ids.tenant_id),
+        json={
+            "status": "completed",
+            "ended_reason": "completed",
+            "ended_at": "2026-08-24T01:02:00Z",
+        },
+    )
+    assert finished.status_code == 200
+    assert repo.all() == []
+
+
 def test_finish_with_binding_enqueues_once(ids) -> None:
     repo = InMemoryInsightsDispatchRepository()
     instance = CustomerServiceInstance.demo(

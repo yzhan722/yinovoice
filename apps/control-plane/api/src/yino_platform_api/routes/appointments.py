@@ -125,6 +125,11 @@ def create_router(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Appointment not found",
             )
+        if item.status == "cancelled":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="cancelled appointment cannot be modified",
+            )
         data = update.model_dump(exclude_unset=True)
         slot_start = data.get("slot_start", item.slot_start)
         slot_end = data.get("slot_end", item.slot_end)

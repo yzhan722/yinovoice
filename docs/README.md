@@ -20,6 +20,8 @@
 
 - `docs/architecture/`：当前架构说明。
 - `docs/platform/`：平台规格、设计和实施计划。
+- `.github/workflows/ci.yml`：api / voice-agent / web / call-insights / contracts 分 Job。
+- `packages/contracts/ended-call/`：Yino → Insights ended-call v1 schema 与 fixtures。
 - `docs/platform/superpowers/specs/2026-08-24-commercial-mvp-inbound-voice-design.md`：入站电话商业 MVP 设计。
 - `docs/platform/superpowers/plans/2026-08-24-commercial-mvp-inbound-voice.md`：入站电话实施计划。
 - `docs/platform/2026-08-25-commercial-mvp-manual-checklist.md`：合成数据手工 A–E 冒烟清单。
