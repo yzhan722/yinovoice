@@ -23,6 +23,7 @@ from .runtime_config import (
     RuntimeCustomerService,
 )
 from .session import create_session
+from .session_trace import SessionTrace
 from .tool_client import ToolInvocationClient
 from .tool_orchestrator import ToolOrchestrator
 
@@ -163,14 +164,24 @@ async def _speak_with_optional_lifecycle(
 
     lifecycle: CallLifecycleClient | None = None
     orchestrator: ToolOrchestrator | None = None
+    trace: SessionTrace | None = None
     if metadata is not None and http_client is not None:
-        lifecycle = CallLifecycleClient(http_client, metadata.tenant_id)
+        trace = SessionTrace(
+            session_id=_room_name(ctx),
+            call_id=metadata.provider_call_id,
+        )
+        lifecycle = CallLifecycleClient(
+            http_client, metadata.tenant_id, trace=trace
+        )
         await lifecycle.start_from_dispatch(metadata, _room_name(ctx))
         orchestrator = ToolOrchestrator(
-            tools=ToolInvocationClient(http_client, metadata.tenant_id),
+            tools=ToolInvocationClient(
+                http_client, metadata.tenant_id, trace=trace
+            ),
             lifecycle=lifecycle,
             session_id=_room_name(ctx),
             voice_agent_instance_id=metadata.customer_service_id,
+            trace=trace,
         )
 
     session = create_session(runtime.providers, runtime.vad)
@@ -178,45 +189,63 @@ async def _speak_with_optional_lifecycle(
         _bind_orchestrator(session, orchestrator)
     closed = asyncio.Event()
     close_events: list[object] = []
+    finish_tasks: list[asyncio.Task[None]] = []
+
+    async def request_finish(status: str, ended_reason: str) -> None:
+        try:
+            if orchestrator is not None:
+                orchestrator.mark_closed()
+            if lifecycle is not None:
+                await lifecycle.finish(status=status, ended_reason=ended_reason)
+        finally:
+            closed.set()
+
     on = getattr(session, "on", None)
     if callable(on):
 
         def _on_close(event: object = None) -> None:
             close_events.append(event)
-            closed.set()
+            status, ended_reason = _ended_from_close(event)
+            finish_tasks.append(
+                asyncio.create_task(request_finish(status, ended_reason))
+            )
 
         on("close", _on_close)
     add_shutdown = getattr(ctx, "add_shutdown_callback", None)
     if callable(add_shutdown):
 
         async def _on_shutdown(_reason: str = "") -> None:
-            closed.set()
+            event = close_events[0] if close_events else None
+            status, ended_reason = _ended_from_close(event)
+            await request_finish(status, ended_reason)
 
         add_shutdown(_on_shutdown)
     try:
-        await session.start(
-            room=ctx.room,
-            agent=agent,
-        )
-        session.say(
-            greeting,
-            allow_interruptions=True,
-            add_to_chat_ctx=False,
-        )
-    except Exception:
-        if lifecycle is not None:
-            await lifecycle.finish(
-                status="failed",
-                ended_reason="agent_error",
+        try:
+            await session.start(
+                room=ctx.room,
+                agent=agent,
             )
-        raise
-    if callable(on) or callable(add_shutdown):
-        await closed.wait()
-    if lifecycle is not None:
-        status, ended_reason = _ended_from_close(
-            close_events[0] if close_events else None
-        )
-        await lifecycle.finish(status=status, ended_reason=ended_reason)
+            if trace is not None:
+                trace.mark("runtime_ready")
+            session.say(
+                greeting,
+                allow_interruptions=True,
+                add_to_chat_ctx=False,
+            )
+        except Exception:
+            await request_finish("failed", "agent_error")
+            raise
+        if callable(on) or callable(add_shutdown):
+            await closed.wait()
+        elif lifecycle is not None:
+            await request_finish("completed", "completed")
+    finally:
+        if orchestrator is not None:
+            orchestrator.mark_closed()
+            await orchestrator.wait_idle()
+        if finish_tasks:
+            await asyncio.gather(*finish_tasks, return_exceptions=True)
 
 
 def _ended_from_close(event: object | None) -> tuple[str, str]:
@@ -259,7 +288,7 @@ def _bind_orchestrator(session: object, orchestrator: ToolOrchestrator) -> None:
             return
         transcript = getattr(event, "transcript", "")
         if isinstance(transcript, str) and transcript.strip():
-            asyncio.create_task(orchestrator.handle_user_final(transcript))
+            orchestrator.spawn(orchestrator.handle_user_final(transcript))
 
     def _on_item(event: object) -> None:
         item = getattr(event, "item", None)
@@ -267,7 +296,7 @@ def _bind_orchestrator(session: object, orchestrator: ToolOrchestrator) -> None:
             return
         text = _chat_text(item)
         if text.strip():
-            asyncio.create_task(orchestrator.handle_assistant_final(text))
+            orchestrator.spawn(orchestrator.handle_assistant_final(text))
 
     on("user_input_transcribed", _on_user)
     on("conversation_item_added", _on_item)

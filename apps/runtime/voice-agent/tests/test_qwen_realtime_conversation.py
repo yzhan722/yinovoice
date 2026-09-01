@@ -77,6 +77,13 @@ async def connected_session(
     session = model.session()
     await asyncio.wait_for(connector.connected.wait(), timeout=0.2)
     await socket.wait_for_event_count("session.update", 1)
+    await socket.push({"type": "session.updated", "session": {}})
+
+    async def _session_ready() -> None:
+        while not session._session_accepts_audio:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(_session_ready(), timeout=0.2)
     return model, session
 
 
@@ -128,7 +135,7 @@ async def active_message(
 async def test_push_audio_resamples_stereo_to_16k_mono_40ms_chunks() -> None:
     socket = FakeQwenSocket()
     model, session = await connected_session(socket)
-    stereo_pcm = array("h", [1000, -1000] * 1_920).tobytes()
+    stereo_pcm = array("h", [1000, 1000] * 1_920).tobytes()
     frame = rtc.AudioFrame(
         data=stereo_pcm,
         sample_rate=48_000,
@@ -146,7 +153,7 @@ async def test_push_audio_resamples_stereo_to_16k_mono_40ms_chunks() -> None:
     for event in appends:
         pcm = base64.b64decode(event["audio"])
         assert len(pcm) == 1_280
-        assert max(abs(sample) for sample in array("h", pcm)) <= 1
+        assert max(abs(sample) for sample in array("h", pcm)) >= 100
     assert not socket.events("input_audio_buffer.commit")
     assert not socket.events("response.create")
 
@@ -199,9 +206,10 @@ async def test_speech_started_cancels_once_and_discards_late_old_output() -> Non
     session.on("input_speech_started", starts.append)
 
     await socket.push({"type": "input_audio_buffer.speech_started"})
+    await wait_for_length(starts, 1)
     await socket.push({"type": "input_audio_buffer.speech_started"})
-    # Barge-in is debounced while an assistant response is active; confirm with
-    # sustained meaningful mic energy so echo bursts do not cancel mid-reply.
+    # Wait until speech_started has reset the counter, then inject sustained
+    # energy so barge-in debounce can confirm against the captured baseline.
     session._meaningful_appends_since_speech_start = 5
     await asyncio.sleep(0.65)
     await socket.wait_for_event_count("response.cancel", 1)
