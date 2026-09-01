@@ -15,6 +15,9 @@ from yino_platform_api.repositories.customer_services import (
 )
 from yino_platform_api.repositories.phone_numbers import InMemoryPhoneNumberRepository
 
+TEST_PHONE_LOOKUP_TOKEN = "test-phone-lookup-token"
+LOOKUP_HEADERS = {"X-Phone-Lookup-Token": TEST_PHONE_LOOKUP_TOKEN}
+
 
 def _client(ids, extra=None) -> TestClient:
     instance = CustomerServiceInstance.demo(
@@ -29,6 +32,7 @@ def _client(ids, extra=None) -> TestClient:
             appointment_repository=InMemoryAppointmentRepository(),
             callback_task_repository=InMemoryCallbackTaskRepository(),
             phone_number_repository=InMemoryPhoneNumberRepository(),
+            phone_lookup_token=TEST_PHONE_LOOKUP_TOKEN,
         )
     )
 
@@ -58,7 +62,10 @@ def test_create_and_lookup_phone_number(ids) -> None:
     assert listed.status_code == 200
     assert listed.json()["total"] == 1
 
-    lookup = client.get("/api/v1/phone-numbers/lookup?number=%2B61%20400%20000%20001")
+    lookup = client.get(
+        "/api/v1/phone-numbers/lookup?number=%2B61%20400%20000%20001",
+        headers=LOOKUP_HEADERS,
+    )
     assert lookup.status_code == 200
     assert lookup.json()["id"] == body["id"]
     assert lookup.json()["tenant_id"] == str(ids.tenant_id)
@@ -136,7 +143,10 @@ def test_disabled_number_is_hidden_from_lookup(ids) -> None:
     )
     assert updated.status_code == 200
     assert updated.json()["enabled"] is False
-    lookup = client.get("/api/v1/phone-numbers/lookup?number=%2B61400000004")
+    lookup = client.get(
+        "/api/v1/phone-numbers/lookup?number=%2B61400000004",
+        headers=LOOKUP_HEADERS,
+    )
     assert lookup.status_code == 404
 
 
@@ -190,7 +200,10 @@ def test_lookup_is_inbound_destination_without_secrets(ids) -> None:
         },
     )
     assert created.status_code == 201, created.text
-    lookup = client.get("/api/v1/phone-numbers/lookup?number=%2B61400000006")
+    lookup = client.get(
+        "/api/v1/phone-numbers/lookup?number=%2B61400000006",
+        headers=LOOKUP_HEADERS,
+    )
     assert lookup.status_code == 200
     body = lookup.json()
     assert body["tenant_id"] == str(ids.tenant_id)
@@ -227,3 +240,55 @@ def test_list_is_tenant_isolated(ids) -> None:
         headers={"X-Tenant-ID": str(ids.other_tenant_id)},
     )
     assert other_get.status_code == 404
+
+
+def test_lookup_requires_matching_token(ids) -> None:
+    client = _client(ids)
+    created = client.post(
+        "/api/v1/phone-numbers",
+        headers={"X-Tenant-ID": str(ids.tenant_id)},
+        json={
+            "e164_number": "+61400000008",
+            "voice_agent_instance_id": str(ids.instance_id),
+        },
+    )
+    assert created.status_code == 201
+    url = "/api/v1/phone-numbers/lookup?number=%2B61400000008"
+    assert client.get(url).status_code == 401
+    wrong = client.get(url, headers={"X-Phone-Lookup-Token": "wrong-token-value"})
+    assert wrong.status_code == 401
+    assert "wrong-token-value" not in wrong.text
+    ok = client.get(url, headers=LOOKUP_HEADERS)
+    assert ok.status_code == 200
+    assert ok.json()["e164_number"] == "+61400000008"
+
+
+def test_lookup_fails_closed_when_token_is_not_configured(ids) -> None:
+    instance = CustomerServiceInstance.demo(
+        instance_id=ids.instance_id,
+        tenant_id=ids.tenant_id,
+    )
+    client = TestClient(
+        create_app(
+            InMemoryCustomerServiceRepository([instance]),
+            call_record_repository=InMemoryCallRecordRepository(),
+            appointment_repository=InMemoryAppointmentRepository(),
+            callback_task_repository=InMemoryCallbackTaskRepository(),
+            phone_number_repository=InMemoryPhoneNumberRepository(),
+            phone_lookup_token="",
+        )
+    )
+    created = client.post(
+        "/api/v1/phone-numbers",
+        headers={"X-Tenant-ID": str(ids.tenant_id)},
+        json={
+            "e164_number": "+61400000009",
+            "voice_agent_instance_id": str(ids.instance_id),
+        },
+    )
+    assert created.status_code == 201
+    lookup = client.get(
+        "/api/v1/phone-numbers/lookup?number=%2B61400000009",
+        headers=LOOKUP_HEADERS,
+    )
+    assert lookup.status_code == 401

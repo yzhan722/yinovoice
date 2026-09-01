@@ -16,14 +16,14 @@ apps\control-plane\api\.venv\Scripts\python.exe scripts\smoke_commercial_mvp.py
 ## A. 号码映射
 
 1. 租户页「电话号码」绑定合成 E.164（例如 `+61400000001`）到现有实例。
-2. `GET /api/v1/phone-numbers/lookup?number=+61400000001` 返回同一租户与实例。
+2. `GET /api/v1/phone-numbers/lookup?number=+61400000001` 须带 `X-Phone-Lookup-Token`，返回同一租户与实例。缺 token 为 401。
 3. 重复绑定同一号码应 409。
 
 ## B. 入站会话生命周期
 
 1. `POST /api/v1/call-sessions/start`，`direction=inbound`，`channel` 仅出现在 LiveKit metadata（值为 `sip`），落库方向为 `inbound`。
 2. 追加 final 消息后 `finish`，状态离开 `in_progress`。
-3. 通话抽屉显示入站、主叫/被叫；网页录音仍走本地 blob，SIP 显示对象键（Fake Egress 时为 `uploading`）。
+3. 通话抽屉显示入站、主叫/被叫；网页录音仍走本地 blob。SIP 在配齐 `RECORDING_S3_*` 与 LiveKit API 后走 RoomComposite → S3（OGG 对象键）；未配齐则 `recording_status=none`。
 
 ## C. 排期与预约
 

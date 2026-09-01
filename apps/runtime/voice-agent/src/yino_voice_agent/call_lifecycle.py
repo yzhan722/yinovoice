@@ -11,7 +11,8 @@ from uuid import UUID
 import httpx
 
 from .runtime_config import DispatchMetadata
-from .session_trace import SessionTrace
+from .session_trace import SessionTrace, redact_phone_numbers
+from .usage import CallUsageAccumulator
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,10 @@ class CallLifecycleClient:
         self._finish_http_started = False
         self._finish_committed = False
         self._finish_selected: tuple[str, str] | None = None
+        self.usage = CallUsageAccumulator()
+
+    def record_usage(self, event: Mapping[str, object]) -> None:
+        self.usage.add(event)
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -144,11 +149,23 @@ class CallLifecycleClient:
                 self._tenant_id,
             )
             return
+        payload: dict[str, Any] = {"status": status, "ended_reason": ended_reason}
+        snapshot = self.usage.snapshot()
+        if snapshot.has_data():
+            payload["usage"] = snapshot.as_dict()
+            logger.info(
+                "call usage recorded tenant_id=%s record_id=%s "
+                "response_count=%s total_tokens=%s",
+                self._tenant_id,
+                self.record_id,
+                snapshot.response_count,
+                snapshot.total_tokens,
+            )
         try:
             response = await self._http.post(
                 f"/api/v1/call-sessions/{self.record_id}/finish",
                 headers=self._headers,
-                json={"status": status, "ended_reason": ended_reason},
+                json=payload,
             )
             await _success_json(response)
         except Exception:
@@ -175,7 +192,7 @@ class CallLifecycleClient:
             logger.exception(
                 "call lifecycle start failed tenant_id=%s room=%s",
                 self._tenant_id,
-                payload.get("room_name"),
+                redact_phone_numbers(str(payload.get("room_name") or "-")),
             )
 
     async def _post_message(self, message: dict[str, Any]) -> None:

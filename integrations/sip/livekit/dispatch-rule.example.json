@@ -1,0 +1,22 @@
+{
+  "dispatch_rule": {
+    "name": "yino-inbound-individual-PLACEHOLDER",
+    "trunk_ids": [
+      "ST_PLACEHOLDER"
+    ],
+    "hide_phone_number": true,
+    "rule": {
+      "dispatchRuleIndividual": {
+        "roomPrefix": "yino-sip-"
+      }
+    },
+    "roomConfig": {
+      "agents": [
+        {
+          "agentName": "yino-customer-service",
+          "metadata": ""
+        }
+      ]
+    }
+  }
+}

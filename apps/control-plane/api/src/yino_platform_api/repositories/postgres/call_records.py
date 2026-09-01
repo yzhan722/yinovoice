@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from ...db.models import CallMessageRow, CallRecordRow
-from ...domain.call_record import CallRecord, TranscriptMessage
+from ...domain.call_record import CallRecord, CallUsage, TranscriptMessage
 
 
 def _to_domain(row: CallRecordRow) -> CallRecord:
@@ -45,6 +45,7 @@ def _to_domain(row: CallRecordRow) -> CallRecord:
         recording_failure_code=row.recording_failure_code,
         recording_egress_id=row.recording_egress_id,
         recording_object_key=row.recording_object_key,
+        usage=CallUsage.model_validate(row.usage) if row.usage else None,
         deleted_at=row.deleted_at,
     )
 
@@ -86,6 +87,9 @@ class PostgresCallRecordRepository:
                     recording_failure_code=record.recording_failure_code,
                     recording_egress_id=record.recording_egress_id,
                     recording_object_key=record.recording_object_key,
+                    usage=(
+                        record.usage.model_dump() if record.usage is not None else None
+                    ),
                     deleted_at=record.deleted_at,
                 )
                 session.add(row)
@@ -108,6 +112,9 @@ class PostgresCallRecordRepository:
                 row.recording_failure_code = record.recording_failure_code
                 row.recording_egress_id = record.recording_egress_id
                 row.recording_object_key = record.recording_object_key
+                row.usage = (
+                    record.usage.model_dump() if record.usage is not None else None
+                )
                 row.deleted_at = record.deleted_at
 
             await session.execute(

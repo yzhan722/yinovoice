@@ -19,6 +19,8 @@ class NormalizedInboundCall:
     direction: Literal["inbound"]
     connected_at: datetime
     room_name: str | None = None
+    trunk_id: str | None = None
+    rule_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +97,7 @@ class RuntimeDispatch:
             caller_number=call.caller_number,
             callee_number=call.callee_number,
             provider_call_id=call.provider_call_id,
+            sip_trunk_id=call.trunk_id,
         )
 
 

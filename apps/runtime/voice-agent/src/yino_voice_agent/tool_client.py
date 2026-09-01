@@ -7,7 +7,7 @@ from uuid import UUID
 
 import httpx
 
-from .session_trace import SessionTrace
+from .session_trace import SessionTrace, redact_phone_numbers
 from .tool_protocol import ALLOWED_TOOL_NAMES, IDEMPOTENT_TOOL_NAMES
 
 logger = logging.getLogger(__name__)
@@ -49,13 +49,13 @@ class ToolInvocationClient:
         if not isinstance(tool_name, str) or tool_name not in ALLOWED_TOOL_NAMES:
             logger.error(
                 "tool invocation rejected unknown_tool session_id=%s",
-                session_id,
+                redact_phone_numbers(session_id),
             )
             return _error_payload("unknown_tool", "unsupported tool")
         if not isinstance(arguments, dict):
             logger.error(
                 "tool invocation rejected invalid_arguments session_id=%s",
-                session_id,
+                redact_phone_numbers(session_id),
             )
             return _error_payload("invalid_arguments", "arguments must be an object")
 
@@ -111,7 +111,7 @@ class ToolInvocationClient:
             logger.error(
                 "tool invocation timeout tenant_id=%s session_id=%s tool=%s",
                 self._tenant_id,
-                session_id,
+                redact_phone_numbers(session_id),
                 tool_name,
             )
             return _error_payload("retryable_transport", "timeout")
@@ -119,7 +119,7 @@ class ToolInvocationClient:
             logger.exception(
                 "tool invocation failed tenant_id=%s session_id=%s tool=%s",
                 self._tenant_id,
-                session_id,
+                redact_phone_numbers(session_id),
                 tool_name,
             )
             return _error_payload("retryable_transport", "transport")
@@ -129,7 +129,7 @@ class ToolInvocationClient:
                 "tool invocation HTTP %s tenant_id=%s session_id=%s",
                 response.status_code,
                 self._tenant_id,
-                session_id,
+                redact_phone_numbers(session_id),
             )
             return _error_payload("retryable_transport", "http_5xx")
         if response.status_code >= 400:
@@ -149,7 +149,7 @@ class ToolInvocationClient:
                 "tool invocation HTTP %s tenant_id=%s session_id=%s",
                 response.status_code,
                 self._tenant_id,
-                session_id,
+                redact_phone_numbers(session_id),
             )
             return None
         body = _read_json_object(response)

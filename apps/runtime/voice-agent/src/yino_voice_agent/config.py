@@ -9,6 +9,7 @@ from typing import Literal, cast
 from urllib.parse import urlsplit
 
 ProviderMode = Literal["qwen-realtime", "pipeline"]
+DEFAULT_LIVEKIT_AGENT_NAME = "yino-customer-service"
 
 
 class ConfigurationError(ValueError):
@@ -34,6 +35,7 @@ class VoiceSettings:
     greeting: str
     platform_api_url: str
     allow_empty_dispatch_metadata_local_dev: bool
+    phone_lookup_token: str | None
 
     @classmethod
     def from_env(
@@ -99,6 +101,12 @@ class VoiceSettings:
             tts_voice = read("TTS_VOICE", "ash")
             language = read("AGENT_LANGUAGE", "zh")
 
+        def read_optional(name: str) -> str | None:
+            raw = values.get(name)
+            if raw is None or not raw.strip():
+                return None
+            return raw.strip()
+
         return cls(
             provider_mode=provider_mode,
             dashscope_api_key=read("DASHSCOPE_API_KEY"),
@@ -125,4 +133,5 @@ class VoiceSettings:
             allow_empty_dispatch_metadata_local_dev=read_bool(
                 "ALLOW_EMPTY_DISPATCH_METADATA_LOCAL_DEV",
             ),
+            phone_lookup_token=read_optional("PHONE_LOOKUP_TOKEN"),
         )

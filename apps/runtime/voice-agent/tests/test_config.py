@@ -1,6 +1,10 @@
 import pytest
 
-from yino_voice_agent.config import ConfigurationError, VoiceSettings
+from yino_voice_agent.config import (
+    DEFAULT_LIVEKIT_AGENT_NAME,
+    ConfigurationError,
+    VoiceSettings,
+)
 
 
 def valid_env() -> dict[str, str]:
@@ -137,6 +141,15 @@ def test_invalid_local_dev_boolean_is_rejected() -> None:
         )
 
 
+def test_blank_phone_lookup_token_is_optional() -> None:
+    settings = VoiceSettings.from_env(valid_env() | {"PHONE_LOOKUP_TOKEN": "   "})
+    assert settings.phone_lookup_token is None
+    settings = VoiceSettings.from_env(
+        valid_env() | {"PHONE_LOOKUP_TOKEN": "runtime-lookup-token"}
+    )
+    assert settings.phone_lookup_token == "runtime-lookup-token"
+
+
 def test_default_greeting_uses_customer_service_language() -> None:
     settings = VoiceSettings.from_env(valid_env())
 
@@ -173,3 +186,7 @@ def test_blank_pipeline_value_is_rejected(name: str) -> None:
 
     with pytest.raises(ConfigurationError, match=name):
         VoiceSettings.from_env(env)
+
+
+def test_default_livekit_agent_name_is_stable() -> None:
+    assert DEFAULT_LIVEKIT_AGENT_NAME == "yino-customer-service"

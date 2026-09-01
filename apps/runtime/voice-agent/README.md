@@ -54,6 +54,7 @@ LIVEKIT_API_KEY=devkey
 LIVEKIT_API_SECRET=secret
 PLATFORM_API_URL=http://localhost:8000
 ALLOW_EMPTY_DISPATCH_METADATA_LOCAL_DEV=false
+# PHONE_LOOKUP_TOKEN=replace-with-runtime-lookup-token
 ```
 
 不要把真实 key 写入 `.env.example`、README、日志、验收报告或前端 `VITE_` 变量。
@@ -119,4 +120,4 @@ pipeline fallback 的行为和延迟不能代表 Qwen Realtime 默认链路。
 .\.venv\Scripts\python.exe -m yino_voice_agent.server --help
 ```
 
-电话、SIP、Jambonz、预约和知识库当前均未连接到本 worker。
+电话入站 SIP 适配器已接到 Runtime（LiveKit SIP participant → Platform lookup → 现有 AgentSession）。Lookup 必须带 `X-Phone-Lookup-Token`。真实 PSTN / 买号 / 改 trunk 仍需单独授权；见 `docs/realtime/2026-09-01-sip-inbound-stage-runbook.md`。

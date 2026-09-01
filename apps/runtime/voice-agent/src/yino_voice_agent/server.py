@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from livekit.agents import AgentServer, JobContext, cli
 
 from .call_lifecycle import CallLifecycleClient
-from .config import VoiceSettings
+from .config import DEFAULT_LIVEKIT_AGENT_NAME, VoiceSettings
 from .customer_service import create_customer_service
 from .providers import ProviderBundle, build_providers
 from .runtime_config import (
@@ -24,6 +24,12 @@ from .runtime_config import (
 )
 from .session import create_session
 from .session_trace import SessionTrace
+from .telephony.dispatch import (
+    await_joining_participant,
+    explicit_job_metadata,
+    resolve_sip_inbound_dispatch,
+)
+from .telephony.livekit_sip import is_sip_participant
 from .tool_client import ToolInvocationClient
 from .tool_orchestrator import ToolOrchestrator
 
@@ -62,7 +68,7 @@ def create_console_runtime(
 
 
 async def create_dispatched_runtime(
-    raw_metadata: str,
+    raw_metadata: str | DispatchMetadata,
     *,
     settings: VoiceSettings,
     config_client: PlatformConfigClient,
@@ -71,7 +77,11 @@ async def create_dispatched_runtime(
 ) -> RuntimeDependencies:
     """Create dependencies from one exact Platform-published snapshot."""
 
-    metadata = DispatchMetadata.from_json(raw_metadata)
+    metadata = (
+        raw_metadata
+        if isinstance(raw_metadata, DispatchMetadata)
+        else DispatchMetadata.from_json(raw_metadata)
+    )
     customer_service = await config_client.get(metadata)
     providers = (provider_factory or build_providers)(
         settings, runtime_config=customer_service
@@ -91,7 +101,9 @@ load_dotenv(".env.local")
 server = AgentServer()
 
 # Isolate parallel deployments (prod vs stage1) via LIVEKIT_AGENT_NAME.
-LIVEKIT_AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "yino-customer-service")
+# SIP inbound Dispatch Rules must use this same name and leave job metadata empty
+# so callee lookup can select the tenant. Do not hard-code the name elsewhere.
+LIVEKIT_AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", DEFAULT_LIVEKIT_AGENT_NAME)
 
 
 def _room_name(ctx: JobContext) -> str:
@@ -103,18 +115,36 @@ def _room_name(ctx: JobContext) -> str:
 
 @server.rtc_session(agent_name=LIVEKIT_AGENT_NAME)
 async def local_voice_agent(ctx: JobContext) -> None:
-    """Run one local or RTC-backed voice-agent session."""
+    """Run one local, Platform-dispatched, or LiveKit SIP inbound session."""
 
-    raw_metadata = ctx.job.metadata
-    if raw_metadata.strip():
-        metadata = DispatchMetadata.from_json(raw_metadata)
-        settings = VoiceSettings.from_env()
+    settings = VoiceSettings.from_env()
+    explicit = explicit_job_metadata(ctx)
+    participant = None
+    if explicit is None:
+        participant = await await_joining_participant(
+            ctx,
+            sip_only=not settings.allow_empty_dispatch_metadata_local_dev,
+        )
+
+    if explicit is not None or is_sip_participant(participant):
         async with httpx.AsyncClient(
             base_url=settings.platform_api_url,
             timeout=5.0,
         ) as http_client:
+            sip_trace = None
+            if explicit is not None:
+                metadata = explicit
+            else:
+                sip_trace = SessionTrace(session_id=_room_name(ctx))
+                metadata = await resolve_sip_inbound_dispatch(
+                    ctx,
+                    participant=participant,
+                    http=http_client,
+                    trace=sip_trace,
+                    lookup_token=settings.phone_lookup_token,
+                )
             runtime = await create_dispatched_runtime(
-                raw_metadata,
+                metadata,
                 settings=settings,
                 config_client=PlatformConfigClient(http_client),
             )
@@ -123,10 +153,10 @@ async def local_voice_agent(ctx: JobContext) -> None:
                 runtime,
                 metadata=metadata,
                 http_client=http_client,
+                trace=sip_trace,
             )
         return
 
-    settings = VoiceSettings.from_env()
     if not settings.allow_empty_dispatch_metadata_local_dev:
         raise RuntimeConfigurationError(
             "RTC jobs with empty dispatch metadata are disabled; "
@@ -142,6 +172,7 @@ async def _speak_with_optional_lifecycle(
     *,
     metadata: DispatchMetadata | None = None,
     http_client: httpx.AsyncClient | None = None,
+    trace: SessionTrace | None = None,
 ) -> None:
     customer_service = runtime.customer_service
     if customer_service is None:
@@ -164,12 +195,14 @@ async def _speak_with_optional_lifecycle(
 
     lifecycle: CallLifecycleClient | None = None
     orchestrator: ToolOrchestrator | None = None
-    trace: SessionTrace | None = None
     if metadata is not None and http_client is not None:
-        trace = SessionTrace(
-            session_id=_room_name(ctx),
-            call_id=metadata.provider_call_id,
-        )
+        if trace is None:
+            trace = SessionTrace(
+                session_id=_room_name(ctx),
+                call_id=metadata.provider_call_id,
+            )
+        elif not trace.call_id:
+            trace.call_id = metadata.provider_call_id
         lifecycle = CallLifecycleClient(
             http_client, metadata.tenant_id, trace=trace
         )
@@ -185,6 +218,10 @@ async def _speak_with_optional_lifecycle(
         )
 
     session = create_session(runtime.providers, runtime.vad)
+    if lifecycle is not None:
+        attach_usage = getattr(runtime.providers.llm, "attach_usage_sink", None)
+        if callable(attach_usage):
+            attach_usage(lifecycle.record_usage)
     if orchestrator is not None:
         _bind_orchestrator(session, orchestrator)
     closed = asyncio.Event()
@@ -249,15 +286,26 @@ async def _speak_with_optional_lifecycle(
 
 
 def _ended_from_close(event: object | None) -> tuple[str, str]:
+    """Map AgentSession CloseEvent.reason (CloseReason names).
+
+    Inbound SIP BYE is DisconnectReason.CLIENT_INITIATED on the participant.
+    RoomIO then closes the session with CloseReason.PARTICIPANT_DISCONNECTED.
+    CLIENT_INITIATED is kept as a defensive alias if a close event ever carries
+    the disconnect enum name.
+    """
     if event is None:
         return ("completed", "completed")
     if getattr(event, "error", None) is not None:
         return ("failed", "agent_error")
     reason = getattr(event, "reason", None)
     name = getattr(reason, "name", None)
-    if name in {"PARTICIPANT_DISCONNECTED", "USER_INITIATED"}:
+    if name in {
+        "PARTICIPANT_DISCONNECTED",
+        "USER_INITIATED",
+        "CLIENT_INITIATED",
+    }:
         return ("completed", "user_hangup")
-    if name == "ERROR":
+    if name in {"ERROR", "SIP_TRUNK_FAILURE"}:
         return ("failed", "agent_error")
     return ("completed", "completed")
 

@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Protocol
 
 logger = logging.getLogger(__name__)
+
+_E164_LIKE = re.compile(r"\+[1-9]\d{7,14}")
+_BARE_MSISDN = re.compile(r"(?<![\dA-Fa-f])[1-9]\d{8,14}(?![\dA-Fa-f])")
+
+
+def redact_phone_numbers(text: str) -> str:
+    """Strip phone-like strings from log text. Do not use for Platform payloads."""
+
+    return _BARE_MSISDN.sub("***", _E164_LIKE.sub("+***", text))
+
 
 # Only events the runtime can actually observe. Do not invent SDK-invisible points.
 OBSERVED_EVENTS = frozenset(
@@ -20,6 +31,8 @@ OBSERVED_EVENTS = frozenset(
         "session_close",
         "finish_start",
         "finish_complete",
+        "sip_normalized",
+        "destination_resolved",
     }
 )
 
@@ -30,6 +43,8 @@ _FIRST_ONLY = frozenset(
         "first_user_transcript",
         "assistant_response_start",
         "session_close",
+        "sip_normalized",
+        "destination_resolved",
     }
 )
 
@@ -86,8 +101,8 @@ class SessionTrace:
         logger.info(
             "runtime timing event=%s session_id=%s call_id=%s t=%.6f",
             name,
-            self.session_id,
-            self.call_id or "-",
+            redact_phone_numbers(self.session_id),
+            redact_phone_numbers(self.call_id or "-"),
             timestamp,
         )
 

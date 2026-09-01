@@ -41,15 +41,30 @@
 
 | 决策 | 内容 |
 |------|------|
-| 通道 | LiveKit SIP 入站字段保留；**本期不接真实 PSTN**（Twilio 官方不支持大陆 +86 语音） |
+| 通道 | LiveKit SIP inbound Runtime adapter 已落地（participant → lookup → 既有 session）。**本期仍不拨真实 PSTN**；买号/改 trunk/dispatch 需单独授权 |
 | 排期 | Yino 内建单资源，不接 Google Calendar / HIS |
 | 转接 | 不提供通话中转人工；只建回拨任务 |
 | 通话中写 | 隐藏 `[[tool:...]]` 旁路；业务错误 HTTP 200 + `status=error` |
 | 挂断抽取 | 诊所时区解析时段；档期不可用或不完整则回拨，不写假预约 |
-| 录音 | 网页本地上传不变；SIP 走对象键 + Fake Egress；缺 S3 配置则关闭 |
+| 录音 | 网页本地上传不变；SIP 在 S3+LiveKit 配齐后走 RoomComposite → S3（OGG）；缺 S3 则关闭。失败不挂断通话 |
+| 对账 | `response.done` usage 累加后写入 `call_records.usage`（可选 JSON） |
+| 入站 lookup | `GET /api/v1/phone-numbers/lookup` 必须 `X-Phone-Lookup-Token`；空 token 一律 401 |
 | 通知 | 配齐 `SMTP_HOST` + `SMTP_FROM` 才发信（smtplib）；失败不回滚业务 |
 | 身份 | Demo 操作员 HMAC 登录（`demo`/`demo123`）；测试与 voice-agent 仍可用 `X-Tenant-ID`；不做计费/角色矩阵 |
 | 部署 | 不自动部署生产；未经用户授权不 commit / push |
+
+## 2026-09-01 LiveKit SIP inbound Runtime
+
+| 决策 | 内容 |
+|---|---|
+| Provider | Runtime provider 固定为 `livekit_sip`；Twilio/Telnyx 只是上游 |
+| 路由 | 仅用 `sip.trunkPhoneNumber`（callee）查 Platform；禁止 fallback 到 caller |
+| 国内送号 | Runtime 将 0 开头固话、400/800/95、11 位手机收成 `+86…` 再 lookup；Yino 绑定仍写 E.164 |
+| Job metadata | 非空走既有 Platform dispatch；空 metadata + SIP kind 才走 inbound lookup |
+| Dispatch Rule | 长期复用 individual + `LIVEKIT_AGENT_NAME`；规则里 agent metadata 必须为空；首测 `hide_phone_number=true` |
+| 等待参与者 | 生产（未开 local-dev 空 metadata）只等 SIP kind=3，避免网页参与者抢先跳过 callee lookup |
+| 去重 | 生产路径不做进程内 seen-call-id set；exactly-once 仍由 lifecycle `/finish` 保证 |
+| 失败 | lookup 无 token / 401 / 404 / disabled / timeout / 5xx 全部 fail closed，不得进入 local default agent |
 
 ## 2026-08-31 Monorepo 合仓与两人并行分支
 

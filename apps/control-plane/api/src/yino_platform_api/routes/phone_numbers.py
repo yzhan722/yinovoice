@@ -1,6 +1,7 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Header, HTTPException, Query, Response, status
 
 from ..dependencies import TenantId
 from ..domain.phone_number import (
@@ -13,11 +14,17 @@ from ..domain.phone_number import (
 )
 from ..repositories.customer_services import CustomerServiceRepository
 from ..repositories.phone_numbers import PhoneNumberConflict, PhoneNumberRepository
+from ..services.phone_lookup_auth import (
+    PHONE_LOOKUP_HEADER,
+    phone_lookup_token_matches,
+)
 
 
 def create_router(
     phone_numbers: PhoneNumberRepository,
     customer_services: CustomerServiceRepository,
+    *,
+    lookup_token: str | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/phone-numbers")
 
@@ -47,7 +54,16 @@ def create_router(
     @router.get("/lookup", response_model=PhoneNumberView)
     async def lookup_phone_number(
         number: str = Query(min_length=3, max_length=32),
+        x_phone_lookup_token: Annotated[
+            str | None,
+            Header(alias=PHONE_LOOKUP_HEADER),
+        ] = None,
     ) -> PhoneNumberView:
+        if not phone_lookup_token_matches(lookup_token, x_phone_lookup_token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unauthorized",
+            )
         try:
             e164 = normalize_e164(number)
         except ValueError as error:

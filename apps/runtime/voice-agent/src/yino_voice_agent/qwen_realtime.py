@@ -6,7 +6,7 @@ import time
 import weakref
 from array import array
 from collections import deque
-from collections.abc import AsyncIterable, Mapping
+from collections.abc import AsyncIterable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -206,6 +206,12 @@ class QwenRealtimeModel(llm.RealtimeModel):
         )
         self._connector = connector or _AiohttpQwenConnector()
         self._sessions: weakref.WeakSet[QwenRealtimeSession] = weakref.WeakSet()
+        self._usage_sink: Callable[[Mapping[str, object]], None] | None = None
+
+    def attach_usage_sink(
+        self, sink: Callable[[Mapping[str, object]], None]
+    ) -> None:
+        self._usage_sink = sink
 
     @property
     def model(self) -> str:
@@ -1238,6 +1244,13 @@ class QwenRealtimeSession(llm.RealtimeSession):
 
     def _handle_response_done(self, event: Mapping[str, object]) -> None:
         response = event.get("response")
+        if isinstance(response, Mapping):
+            sink = getattr(self._model, "_usage_sink", None)
+            if callable(sink):
+                try:
+                    sink({"type": "response.done", "response": dict(response)})
+                except Exception:
+                    logger.exception("qwen usage sink failed")
         response_id = response.get("id") if isinstance(response, Mapping) else None
         if not isinstance(response_id, str):
             response_id = self._active_response_id

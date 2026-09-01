@@ -248,6 +248,7 @@ class CallRecordRow(Base):
     recording_failure_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     recording_egress_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     recording_object_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    usage: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

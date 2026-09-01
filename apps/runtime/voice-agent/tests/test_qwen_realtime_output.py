@@ -367,6 +367,49 @@ async def test_response_done_closes_remaining_generation_channels() -> None:
 
 
 @pytest.mark.asyncio
+async def test_response_done_forwards_usage_to_sink() -> None:
+    socket = FakeQwenSocket()
+    model, session = await connected_session(socket)
+    seen: list[object] = []
+    model.attach_usage_sink(seen.append)
+    await socket.push(
+        {
+            "type": "response.done",
+            "response": {
+                "id": "resp-usage",
+                "usage": {
+                    "total_tokens": 12,
+                    "input_tokens": 8,
+                    "output_tokens": 4,
+                    "input_tokens_details": {
+                        "text_tokens": 2,
+                        "audio_tokens": 6,
+                    },
+                    "output_tokens_details": {
+                        "text_tokens": 1,
+                        "audio_tokens": 3,
+                    },
+                },
+            },
+        }
+    )
+    for _ in range(50):
+        if seen:
+            break
+        await asyncio.sleep(0)
+    assert seen
+    from yino_voice_agent.usage import parse_response_usage
+
+    parsed = parse_response_usage(seen[0])  # type: ignore[arg-type]
+    assert parsed is not None
+    assert parsed.total_tokens == 12
+    assert parsed.input_audio_tokens == 6
+
+    await session.aclose()
+    await model.aclose()
+
+
+@pytest.mark.asyncio
 async def test_smart_turn_commit_clear_are_noops_and_close_is_idempotent() -> None:
     socket = FakeQwenSocket()
     model, session = await connected_session(socket)

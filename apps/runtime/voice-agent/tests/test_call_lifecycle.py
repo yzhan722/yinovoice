@@ -184,6 +184,41 @@ async def test_concurrent_finish_callers_send_one_http() -> None:
 
 
 @pytest.mark.asyncio
+async def test_finish_includes_accumulated_usage() -> None:
+    client, state, http = _finish_counting_client()
+    seen: list[httpx.Request] = state["seen"]  # type: ignore[assignment]
+    async with http:
+        await client.start_from_dispatch(_metadata(), "sip-room-1")
+        client.record_usage(
+            {
+                "type": "response.done",
+                "response": {
+                    "usage": {
+                        "total_tokens": 20,
+                        "input_tokens": 12,
+                        "output_tokens": 8,
+                        "input_tokens_details": {
+                            "text_tokens": 4,
+                            "audio_tokens": 8,
+                        },
+                        "output_tokens_details": {
+                            "text_tokens": 1,
+                            "audio_tokens": 7,
+                        },
+                    }
+                },
+            }
+        )
+        await client.finish(status="completed", ended_reason="completed")
+
+    finish_requests = [item for item in seen if item.url.path.endswith("/finish")]
+    body = json.loads(finish_requests[0].content)
+    assert body["usage"]["total_tokens"] == 20
+    assert body["usage"]["input_audio_tokens"] == 8
+    assert body["usage"]["response_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_second_finish_does_not_overwrite_committed_agent_error() -> None:
     client, state, http = _finish_counting_client()
     seen: list[httpx.Request] = state["seen"]  # type: ignore[assignment]

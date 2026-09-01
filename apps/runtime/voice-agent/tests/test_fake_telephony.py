@@ -15,12 +15,14 @@ from yino_voice_agent.telephony import (
     PlatformDestinationResolver,
     ResolvedDestination,
 )
+from yino_voice_agent.telephony.resolver import PHONE_LOOKUP_HEADER
 
 TENANT = UUID("00000000-0000-0000-0000-000000000001")
 INSTANCE = UUID("00000000-0000-0000-0000-000000000101")
 KNOWN = "+61400000099"
 DISABLED = "+61400000098"
 UNKNOWN = "+61400000097"
+LOOKUP_TOKEN = "test-phone-lookup-token"
 
 
 def _resolver() -> FakeDestinationResolver:
@@ -133,7 +135,7 @@ async def test_platform_lookup_maps_and_rejects_incomplete_contract() -> None:
     async with httpx.AsyncClient(
         transport=transport, base_url="http://platform.test"
     ) as http:
-        resolver = PlatformDestinationResolver(http)
+        resolver = PlatformDestinationResolver(http, lookup_token=LOOKUP_TOKEN)
         found = await resolver.resolve(KNOWN)
         missing = await resolver.resolve(UNKNOWN)
         with pytest.raises(RuntimeConfigurationError, match="missing fields"):
@@ -143,6 +145,36 @@ async def test_platform_lookup_maps_and_rejects_incomplete_contract() -> None:
     assert found.config_version == 4
     assert missing is None
     assert seen[0].url.path == "/api/v1/phone-numbers/lookup"
+    assert seen[0].headers.get(PHONE_LOOKUP_HEADER) == LOOKUP_TOKEN
+
+
+@pytest.mark.asyncio
+async def test_platform_lookup_timeout_and_http_error_fail_closed() -> None:
+    def timeout_handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out")
+
+    def boom_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="down")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(timeout_handler),
+        base_url="http://platform.test",
+    ) as http:
+        with pytest.raises(
+            RuntimeConfigurationError, match="destination lookup failed"
+        ):
+            await PlatformDestinationResolver(
+                http, lookup_token=LOOKUP_TOKEN
+            ).resolve(KNOWN)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(boom_handler),
+        base_url="http://platform.test",
+    ) as http:
+        with pytest.raises(RuntimeConfigurationError, match="HTTP 500"):
+            await PlatformDestinationResolver(
+                http, lookup_token=LOOKUP_TOKEN
+            ).resolve(KNOWN)
 
 
 def test_normalized_inbound_is_not_raw_provider_json() -> None:
@@ -166,4 +198,6 @@ def test_normalized_inbound_is_not_raw_provider_json() -> None:
         "direction",
         "connected_at",
         "room_name",
+        "trunk_id",
+        "rule_id",
     }
