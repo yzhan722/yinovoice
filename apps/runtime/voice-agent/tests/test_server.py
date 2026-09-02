@@ -111,9 +111,7 @@ async def test_realtime_dispatched_runtime_does_not_load_vad() -> None:
     settings = realtime_settings()
     customer_service = runtime_customer_service()
     providers = ProviderBundle(mode="qwen-realtime", llm=object())
-    config_client = SimpleNamespace(
-        get=AsyncMock(return_value=customer_service)
-    )
+    config_client = SimpleNamespace(get=AsyncMock(return_value=customer_service))
     metadata = json.dumps(
         {
             "customer_service_id": str(customer_service.id),
@@ -289,9 +287,7 @@ async def test_dispatched_entrypoint_uses_exact_platform_snapshot() -> None:
     )
     http_client_factory.return_value.__aexit__.assert_awaited_once()
     config_get.assert_awaited_once_with(metadata)
-    assert metadata.customer_service_id == UUID(
-        "00000000-0000-0000-0000-000000000001"
-    )
+    assert metadata.customer_service_id == UUID("00000000-0000-0000-0000-000000000001")
     provider_factory.assert_called_once_with(settings, runtime_config=runtime)
     customer_service_factory.assert_called_once_with(
         runtime.organization_name,
@@ -299,9 +295,7 @@ async def test_dispatched_entrypoint_uses_exact_platform_snapshot() -> None:
         tenant_prompt=runtime.tenant_prompt,
         brevity=runtime.response.brevity,
         max_spoken_sentences=runtime.response.max_spoken_sentences,
-        ask_one_question_at_a_time=(
-            runtime.response.ask_one_question_at_a_time
-        ),
+        ask_one_question_at_a_time=(runtime.response.ask_one_question_at_a_time),
     )
     session_factory.assert_called_once_with(providers, vad)
     session.start.assert_awaited_once_with(
@@ -638,9 +632,7 @@ async def test_close_and_shutdown_race_sends_one_finish_http() -> None:
     await _wait_for_close_handler(session, task)
     assert context.shutdown_callbacks
     session.emit_close(reason_name="PARTICIPANT_DISCONNECTED")
-    await asyncio.gather(
-        *(callback("") for callback in context.shutdown_callbacks)
-    )
+    await asyncio.gather(*(callback("") for callback in context.shutdown_callbacks))
     await asyncio.wait_for(task, timeout=1)
     bodies: list[dict[str, object]] = state["finish_bodies"]  # type: ignore[assignment]
     assert len(bodies) == 1

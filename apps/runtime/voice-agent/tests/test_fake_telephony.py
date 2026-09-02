@@ -46,9 +46,7 @@ def _resolver() -> FakeDestinationResolver:
 
 @pytest.mark.asyncio
 async def test_known_inbound_dispatches_runtime_metadata() -> None:
-    adapter = InboundCallAdapter(
-        provider=FakeInboundProvider(), resolver=_resolver()
-    )
+    adapter = InboundCallAdapter(provider=FakeInboundProvider(), resolver=_resolver())
     metadata = await adapter.dispatch(
         provider="fake-sip",
         provider_call_id="prov-1",
@@ -68,9 +66,7 @@ async def test_known_inbound_dispatches_runtime_metadata() -> None:
 
 @pytest.mark.asyncio
 async def test_unknown_disabled_missing_caller_and_duplicate_are_safe() -> None:
-    adapter = InboundCallAdapter(
-        provider=FakeInboundProvider(), resolver=_resolver()
-    )
+    adapter = InboundCallAdapter(provider=FakeInboundProvider(), resolver=_resolver())
     unknown = await adapter.dispatch(
         provider="fake-sip",
         provider_call_id="prov-unknown",
@@ -163,18 +159,18 @@ async def test_platform_lookup_timeout_and_http_error_fail_closed() -> None:
         with pytest.raises(
             RuntimeConfigurationError, match="destination lookup failed"
         ):
-            await PlatformDestinationResolver(
-                http, lookup_token=LOOKUP_TOKEN
-            ).resolve(KNOWN)
+            await PlatformDestinationResolver(http, lookup_token=LOOKUP_TOKEN).resolve(
+                KNOWN
+            )
 
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(boom_handler),
         base_url="http://platform.test",
     ) as http:
         with pytest.raises(RuntimeConfigurationError, match="HTTP 500"):
-            await PlatformDestinationResolver(
-                http, lookup_token=LOOKUP_TOKEN
-            ).resolve(KNOWN)
+            await PlatformDestinationResolver(http, lookup_token=LOOKUP_TOKEN).resolve(
+                KNOWN
+            )
 
 
 def test_normalized_inbound_is_not_raw_provider_json() -> None:

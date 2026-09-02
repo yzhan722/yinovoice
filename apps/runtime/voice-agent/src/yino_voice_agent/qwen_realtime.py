@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("yino_voice_agent.qwen_realtime")
 
+from .bounded_ids import BoundedIdWindow
 from .conversation import ConversationEvent
 from .qwen_realtime_protocol import (
     QwenProtocolError,
@@ -75,9 +76,7 @@ class QwenSocket(Protocol):
 
 
 class QwenConnector(Protocol):
-    async def connect(
-        self, url: str, headers: Mapping[str, str]
-    ) -> QwenSocket: ...
+    async def connect(self, url: str, headers: Mapping[str, str]) -> QwenSocket: ...
 
 
 class _AiohttpQwenSocket:
@@ -116,9 +115,7 @@ class _AiohttpQwenSocket:
 
 
 class _AiohttpQwenConnector:
-    async def connect(
-        self, url: str, headers: Mapping[str, str]
-    ) -> QwenSocket:
+    async def connect(self, url: str, headers: Mapping[str, str]) -> QwenSocket:
         session = aiohttp.ClientSession()
         try:
             socket = await session.ws_connect(url, headers=headers)
@@ -219,10 +216,9 @@ class QwenRealtimeModel(llm.RealtimeModel):
         self._usage_sink: Callable[[Mapping[str, object]], None] | None = None
         self._trace: SessionTrace | None = None
         self._conversation: object | None = None
+        self._metrics: object | None = None
 
-    def attach_usage_sink(
-        self, sink: Callable[[Mapping[str, object]], None]
-    ) -> None:
+    def attach_usage_sink(self, sink: Callable[[Mapping[str, object]], None]) -> None:
         self._usage_sink = sink
 
     def attach_trace(self, trace: SessionTrace) -> None:
@@ -230,6 +226,9 @@ class QwenRealtimeModel(llm.RealtimeModel):
 
     def attach_conversation(self, conversation: object) -> None:
         self._conversation = conversation
+
+    def attach_metrics(self, metrics: object) -> None:
+        self._metrics = metrics
 
     @property
     def model(self) -> str:
@@ -284,7 +283,7 @@ class QwenRealtimeSession(llm.RealtimeSession):
         self._close_lock = asyncio.Lock()
         self._responses: dict[str, _ResponseGeneration] = {}
         self._active_response_id: str | None = None
-        self._suppressed_response_ids: set[str] = set()
+        self._suppressed_response_ids = BoundedIdWindow()
         self._transcript_gate = FinalTranscriptGate()
         self._cancel_pending_response = False
         self._input_resampler: rtc.AudioResampler | None = None
@@ -297,9 +296,9 @@ class QwenRealtimeSession(llm.RealtimeSession):
         self._input_speech_active = False
         self._smart_turn_active = False
         self._smart_turn_response_id: str | None = None
-        self._pending_generations: deque[
-            asyncio.Future[llm.GenerationCreatedEvent]
-        ] = deque()
+        self._pending_generations: deque[asyncio.Future[llm.GenerationCreatedEvent]] = (
+            deque()
+        )
         self._say_future: asyncio.Future[llm.GenerationCreatedEvent] | None = None
         self._say_response_id: str | None = None
         self._say_collection_task: asyncio.Task[None] | None = None
@@ -476,9 +475,7 @@ class QwenRealtimeSession(llm.RealtimeSession):
             )
         )
         self._queue_event(
-            build_user_text_item(
-                "请立即执行当前会话指令,并且只输出指定内容。"
-            )
+            build_user_text_item("请立即执行当前会话指令,并且只输出指定内容。")
         )
         self._queue_event(build_response_create())
 
@@ -554,13 +551,9 @@ class QwenRealtimeSession(llm.RealtimeSession):
             self._release_input_audio(send_complete_chunks=False)
             return
         self._release_input_audio(send_complete_chunks=True)
-        if (
-            self._turn_detection_disabled
-            and self._meaningful_appends_since_commit <= 0
-        ):
+        if self._turn_detection_disabled and self._meaningful_appends_since_commit <= 0:
             logger.info(
-                "qwen skip commit: no meaningful audio since last turn "
-                "appends=%s",
+                "qwen skip commit: no meaningful audio since last turn appends=%s",
                 self._audio_append_events,
             )
             return
@@ -584,7 +577,10 @@ class QwenRealtimeSession(llm.RealtimeSession):
             self._arm_commit_response_fallback()
 
     def _arm_commit_response_fallback(self) -> None:
-        if self._commit_fallback_task is not None and not self._commit_fallback_task.done():
+        if (
+            self._commit_fallback_task is not None
+            and not self._commit_fallback_task.done()
+        ):
             self._commit_fallback_task.cancel()
 
         async def _fallback() -> None:
@@ -695,7 +691,10 @@ class QwenRealtimeSession(llm.RealtimeSession):
             "input_speech_stopped",
             llm.InputSpeechStoppedEvent(user_transcription_enabled=True),
         )
-        if self._meaningful_appends_since_commit <= 0 and self._audio_append_events <= 0:
+        if (
+            self._meaningful_appends_since_commit <= 0
+            and self._audio_append_events <= 0
+        ):
             self._smart_turn_active = False
             self._smart_turn_response_id = None
             return
@@ -740,6 +739,7 @@ class QwenRealtimeSession(llm.RealtimeSession):
         # Response may already be finishing; cancel is best-effort and must not
         # become a fatal "no active response" teardown.
         self._suppressed_response_ids.add(response_id)
+        self._note_metrics("note_interruption")
         trace = getattr(self._model, "_trace", None)
         if trace is not None:
             trace.mark("interrupt_start")
@@ -766,9 +766,7 @@ class QwenRealtimeSession(llm.RealtimeSession):
             if not self._closed:
                 self._release_input_audio(send_complete_chunks=True)
                 await self._drain_writer()
-            self._terminate(
-                "Qwen realtime session closed", release_input_audio=False
-            )
+            self._terminate("Qwen realtime session closed", release_input_audio=False)
             tasks = [self._reader_task, self._writer_task]
             if say_collection_task is not None:
                 tasks.append(say_collection_task)
@@ -1059,7 +1057,10 @@ class QwenRealtimeSession(llm.RealtimeSession):
             lowered = message.lower()
             if "no active response" in lowered:
                 self._cancel_pending_response = False
-            if "another response is in progress" in lowered or "already has an active response" in lowered:
+            if (
+                "another response is in progress" in lowered
+                or "already has an active response" in lowered
+            ):
                 self._manual_response_requested = False
                 self._cancel_commit_response_fallback()
             return
@@ -1108,9 +1109,7 @@ class QwenRealtimeSession(llm.RealtimeSession):
         )
         self._notify_conversation(ConversationEvent.USER_SPEECH_END)
 
-    def _handle_input_transcription_delta(
-        self, event: Mapping[str, object]
-    ) -> None:
+    def _handle_input_transcription_delta(self, event: Mapping[str, object]) -> None:
         item_id = event.get("item_id")
         if not isinstance(item_id, str):
             return
@@ -1151,9 +1150,7 @@ class QwenRealtimeSession(llm.RealtimeSession):
         trace = getattr(self._model, "_trace", None)
         if trace is not None:
             trace.mark("final_user_transcript")
-        self._notify_conversation(
-            ConversationEvent.TRANSCRIPT_FINAL, accepted=True
-        )
+        self._notify_conversation(ConversationEvent.TRANSCRIPT_FINAL, accepted=True)
 
     def _handle_response_created(self, event: Mapping[str, object]) -> None:
         response = event.get("response")
@@ -1336,6 +1333,12 @@ class QwenRealtimeSession(llm.RealtimeSession):
             self._notify_conversation(ConversationEvent.ASSISTANT_RESPONSE_DONE)
         self._suppressed_response_ids.discard(response_id)
 
+    def _note_metrics(self, method: str) -> None:
+        metrics = getattr(self._model, "_metrics", None)
+        fn = getattr(metrics, method, None)
+        if callable(fn):
+            fn()
+
     def _notify_conversation(self, event: ConversationEvent, **payload: object) -> None:
         conversation = getattr(self._model, "_conversation", None)
         handle = getattr(conversation, "handle", None)
@@ -1364,15 +1367,15 @@ class QwenRealtimeSession(llm.RealtimeSession):
             and response_id in self._suppressed_response_ids
         )
 
-    def _terminate(
-        self, reason: str, *, release_input_audio: bool = True
-    ) -> None:
+    def _terminate(self, reason: str, *, release_input_audio: bool = True) -> None:
         if self._closed:
             return
         if reason == "Qwen realtime connection closed":
             self._notify_conversation(ConversationEvent.PROVIDER_DISCONNECT)
+            self._note_metrics("note_qwen_disconnect")
         elif reason == "Qwen realtime server error":
             self._notify_conversation(ConversationEvent.PROVIDER_ERROR)
+            self._note_metrics("note_qwen_error")
         if release_input_audio:
             self._release_input_audio(send_complete_chunks=False)
         self._closed = True

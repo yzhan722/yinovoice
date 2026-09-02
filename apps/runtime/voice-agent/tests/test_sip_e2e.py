@@ -89,9 +89,7 @@ async def test_case3_unknown_number_does_not_start_agent() -> None:
     transport = PlatformSipTransport({CALLEE_A: TENANT_AGENT_A})
     ctx = SipJobContext(
         room_name="yino-sip-unknown",
-        participant=sip_participant(
-            attributes=sip_attributes(callee="+61390000999")
-        ),
+        participant=sip_participant(attributes=sip_attributes(callee="+61390000999")),
     )
     factory = Mock(side_effect=immediate_session)
     with (
@@ -465,16 +463,12 @@ async def test_slow_lookup_does_not_block_other_session() -> None:
     fast_done = asyncio.Event()
 
     async def run_fast() -> None:
-        with patched_voice_agent(
-            transport=fast, session_factory=immediate_session
-        ):
+        with patched_voice_agent(transport=fast, session_factory=immediate_session):
             await local_voice_agent(fast_ctx)
         fast_done.set()
 
     async def run_slow() -> None:
-        with patched_voice_agent(
-            transport=slow, session_factory=immediate_session
-        ):
+        with patched_voice_agent(transport=slow, session_factory=immediate_session):
             await local_voice_agent(slow_ctx)
 
     slow_task = asyncio.create_task(run_slow())

@@ -49,9 +49,7 @@ class _SessionTransport(httpx.AsyncBaseTransport):
             )
         if path.endswith("/finish"):
             body = json.loads(request.content)
-            return httpx.Response(
-                200, json={"id": str(self.record_id), **body}
-            )
+            return httpx.Response(200, json={"id": str(self.record_id), **body})
         return httpx.Response(200, json={"id": str(self.record_id)})
 
 
@@ -194,9 +192,7 @@ async def test_platform_failure_is_isolated_to_one_session() -> None:
     failing = _SessionTransport(tool_status=500)
     failing.release_tool.set()
     ok, boom = await asyncio.gather(
-        _run_session(
-            session_id="room-ok", call_id="call-ok", transcript="ok"
-        ),
+        _run_session(session_id="room-ok", call_id="call-ok", transcript="ok"),
         _run_session(
             session_id="room-boom",
             call_id="call-boom",

@@ -106,9 +106,7 @@ def test_qwen_realtime_rejects_blank_optional_overrides(name: str) -> None:
 
 def test_unknown_provider_mode_is_rejected() -> None:
     with pytest.raises(ConfigurationError, match="VOICE_PROVIDER_MODE"):
-        VoiceSettings.from_env(
-            realtime_env() | {"VOICE_PROVIDER_MODE": "unknown"}
-        )
+        VoiceSettings.from_env(realtime_env() | {"VOICE_PROVIDER_MODE": "unknown"})
 
 
 def test_pipeline_loads_defaults_with_required_credentials() -> None:

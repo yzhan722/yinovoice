@@ -231,9 +231,7 @@ class RuntimeCustomerService:
         )
         # Platform A3 soft-delete: active snapshots omit the field or send null.
         if data.get("deleted_at") is not None:
-            raise RuntimeConfigurationError(
-                "Customer service snapshot is soft-deleted"
-            )
+            raise RuntimeConfigurationError("Customer service snapshot is soft-deleted")
         return cls(
             id=_uuid(data["id"], "snapshot customer service ID"),
             tenant_id=_uuid(data["tenant_id"], "snapshot tenant ID"),

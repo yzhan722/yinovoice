@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 from hardening_support import FakePlatform, make_spec, metadata_for, runtime_tasks
@@ -50,3 +52,37 @@ async def test_drain_does_not_double_finish() -> None:
         await lifecycle.finish(status="completed", ended_reason="user_hangup")
         await registry.drain()
     assert platform.finish_count() == 1
+
+
+@pytest.mark.asyncio
+async def test_register_rejected_while_draining() -> None:
+    registry = WorkerSessionRegistry()
+    registry.begin_drain()
+    with pytest.raises(WorkerNotAcceptingError):
+        registry.register("late")
+
+
+@pytest.mark.asyncio
+async def test_duplicate_register_and_unregister_once() -> None:
+    registry = WorkerSessionRegistry()
+    registry.register("once")
+    with pytest.raises(RuntimeError, match="already registered"):
+        registry.register("once")
+    assert registry.unregister("once") is True
+    assert registry.unregister("once") is False
+    assert registry.total_started == 1
+    assert registry.active_count == 0
+
+
+@pytest.mark.asyncio
+async def test_drain_timeout_clears_hung_session() -> None:
+    registry = WorkerSessionRegistry()
+    stuck = asyncio.Event()
+
+    async def hang() -> None:
+        await stuck.wait()
+
+    registry.register("hung", finish=hang)
+    await registry.drain(timeout_s=0.05)
+    assert registry.active_count == 0
+    stuck.set()

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 
-_MAX_SEEN_RESPONSE_IDS = 4096
+from .bounded_ids import DEFAULT_ID_WINDOW, BoundedIdWindow
 
 
 def _nonneg_int(value: object) -> int:
@@ -98,22 +97,15 @@ def parse_response_usage(event: Mapping[str, object]) -> CallUsageTotals | None:
 class CallUsageAccumulator:
     def __init__(self) -> None:
         self._totals = CallUsageTotals()
-        self._seen_ids: set[str] = set()
-        self._seen_order: deque[str] = deque()
+        self._seen_ids = BoundedIdWindow(DEFAULT_ID_WINDOW)
 
     def add(self, event: Mapping[str, object]) -> None:
         parsed = parse_response_usage(event)
         if parsed is None:
             return
         response_id = response_id_from_event(event)
-        if response_id is not None:
-            if response_id in self._seen_ids:
-                return
-            self._seen_ids.add(response_id)
-            self._seen_order.append(response_id)
-            if len(self._seen_order) > _MAX_SEEN_RESPONSE_IDS:
-                expired = self._seen_order.popleft()
-                self._seen_ids.discard(expired)
+        if response_id is not None and not self._seen_ids.add(response_id):
+            return
         totals = self._totals
         totals.input_audio_tokens += parsed.input_audio_tokens
         totals.input_text_tokens += parsed.input_text_tokens

@@ -74,9 +74,7 @@ def test_normalize_falls_back_to_sip_call_id() -> None:
 def test_normalize_rejects_missing_call_ids() -> None:
     with pytest.raises(RuntimeConfigurationError, match=r"sip\.callID"):
         normalize_livekit_sip_participant(
-            sip_participant(
-                attributes=sip_attributes(call_id_full=None, call_id=None)
-            ),
+            sip_participant(attributes=sip_attributes(call_id_full=None, call_id=None)),
             room_name="room-bad",
             clock=FrozenUtcClock(datetime(2026, 9, 1, tzinfo=UTC)),
         )

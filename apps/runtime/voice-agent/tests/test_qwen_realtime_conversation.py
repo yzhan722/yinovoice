@@ -55,9 +55,7 @@ class FakeQwenConnector:
         self.socket = socket
         self.connected = asyncio.Event()
 
-    async def connect(
-        self, url: str, headers: Mapping[str, str]
-    ) -> FakeQwenSocket:
+    async def connect(self, url: str, headers: Mapping[str, str]) -> FakeQwenSocket:
         self.connected.set()
         return self.socket
 
@@ -107,9 +105,7 @@ def message_added(response_id: str, message_id: str) -> dict[str, object]:
     }
 
 
-def audio_delta(
-    response_id: str, message_id: str, pcm: bytes
-) -> dict[str, object]:
+def audio_delta(response_id: str, message_id: str, pcm: bytes) -> dict[str, object]:
     return {
         "type": "response.audio.delta",
         "response_id": response_id,
@@ -126,9 +122,7 @@ async def active_message(
     await socket.push(response_created("resp-old"))
     await socket.push(message_added("resp-old", "msg-old"))
     await wait_for_length(generations, 1)
-    return await asyncio.wait_for(
-        anext(generations[0].message_stream), timeout=0.2
-    )
+    return await asyncio.wait_for(anext(generations[0].message_stream), timeout=0.2)
 
 
 @pytest.mark.asyncio
@@ -186,9 +180,7 @@ async def test_user_transcript_combines_text_and_stash_then_finalizes() -> None:
     )
     await wait_for_length(transcripts, 2)
 
-    assert [
-        (item.item_id, item.transcript, item.is_final) for item in transcripts
-    ] == [
+    assert [(item.item_id, item.transcript, item.is_final) for item in transcripts] == [
         ("user-1", "我想预约洗", False),
         ("user-1", "我想预约洗牙", True),
     ]
@@ -306,12 +298,8 @@ async def test_speech_started_cancels_response_created_after_pending_greeting() 
 async def test_stuck_speech_watchdog_force_commits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "yino_voice_agent.qwen_realtime.STUCK_SPEECH_SILENCE_S", 0.2
-    )
-    monkeypatch.setattr(
-        "yino_voice_agent.qwen_realtime.STUCK_SPEECH_MAX_S", 1.0
-    )
+    monkeypatch.setattr("yino_voice_agent.qwen_realtime.STUCK_SPEECH_SILENCE_S", 0.2)
+    monkeypatch.setattr("yino_voice_agent.qwen_realtime.STUCK_SPEECH_MAX_S", 1.0)
     socket = FakeQwenSocket()
     model, session = await connected_session(socket)
     stops: list[llm.InputSpeechStoppedEvent] = []
@@ -453,9 +441,7 @@ async def test_say_rejects_active_smart_turn_until_response_done() -> None:
             {"type": "input_audio_buffer.speech_stopped", "reason": "natural"}
         )
         await wait_for_length(stops, 1)
-        await socket.push(
-            {"type": "response.done", "response": {"id": "resp-old"}}
-        )
+        await socket.push({"type": "response.done", "response": {"id": "resp-old"}})
         await asyncio.sleep(0)
 
         try:
@@ -467,9 +453,7 @@ async def test_say_rejects_active_smart_turn_until_response_done() -> None:
         assert not socket.events("response.create")
 
         await socket.push(response_created("resp-auto"))
-        await socket.push(
-            {"type": "response.done", "response": {"id": "resp-auto"}}
-        )
+        await socket.push({"type": "response.done", "response": {"id": "resp-auto"}})
         await asyncio.sleep(0)
         allowed = session.say("轮次已经结束")
         await socket.wait_for_event_count("response.create", 1)
@@ -578,9 +562,7 @@ async def test_say_accepts_async_text_stream_and_restores_instructions() -> None
         await socket.push(response_created("resp-stream"))
         generation = await asyncio.wait_for(pending, timeout=0.2)
         assert generation.response_id == "resp-stream"
-        await socket.push(
-            {"type": "response.done", "response": {"id": "resp-stream"}}
-        )
+        await socket.push({"type": "response.done", "response": {"id": "resp-stream"}})
         updates = await socket.wait_for_event_count("session.update", 3)
         restored = updates[-1]["session"]
         assert isinstance(restored, Mapping)
@@ -676,9 +658,7 @@ async def test_three_say_rounds_each_restore_normal_instructions() -> None:
     await socket.wait_for_event_count("response.create", 2)
     await socket.push(response_created("resp-second"))
     await asyncio.wait_for(second, timeout=0.2)
-    await socket.push(
-        {"type": "response.done", "response": {"id": "resp-second"}}
-    )
+    await socket.push({"type": "response.done", "response": {"id": "resp-second"}})
     await socket.wait_for_event_count("session.update", 5)
 
     third = session.say("第三句")
@@ -748,4 +728,22 @@ async def test_close_discards_partial_input_and_fails_pending_say() -> None:
     assert socket.close_calls == 1
     with pytest.raises(llm.RealtimeError, match="closed"):
         await asyncio.wait_for(pending, timeout=0.2)
+    await model.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_response_ids_stay_bounded() -> None:
+    socket = FakeQwenSocket()
+    model, session = await connected_session(socket)
+    window = session._suppressed_response_ids
+    from yino_voice_agent.bounded_ids import DEFAULT_ID_WINDOW, BoundedIdWindow
+
+    assert isinstance(window, BoundedIdWindow)
+    assert window.add("resp-dup") is True
+    assert window.add("resp-dup") is False
+    for index in range(DEFAULT_ID_WINDOW + 10):
+        window.add(f"resp-{index}")
+    assert len(window) == DEFAULT_ID_WINDOW
+    assert f"resp-{DEFAULT_ID_WINDOW + 9}" in window
+    await session.aclose()
     await model.aclose()

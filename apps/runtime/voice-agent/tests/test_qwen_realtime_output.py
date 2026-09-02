@@ -58,9 +58,7 @@ class FakeQwenConnector:
         self.connected_url: str | None = None
         self.connected_headers: Mapping[str, str] | None = None
 
-    async def connect(
-        self, url: str, headers: Mapping[str, str]
-    ) -> FakeQwenSocket:
+    async def connect(self, url: str, headers: Mapping[str, str]) -> FakeQwenSocket:
         self.connected_url = url
         self.connected_headers = headers
         self.connected.set()
@@ -88,9 +86,7 @@ def audio_part_added(response_id: str, message_id: str) -> dict[str, object]:
     }
 
 
-def audio_delta(
-    response_id: str, message_id: str, pcm: bytes
-) -> dict[str, object]:
+def audio_delta(response_id: str, message_id: str, pcm: bytes) -> dict[str, object]:
     return {
         "type": "response.audio.delta",
         "response_id": response_id,

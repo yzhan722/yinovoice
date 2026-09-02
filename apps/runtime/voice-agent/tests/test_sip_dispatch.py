@@ -149,7 +149,10 @@ async def test_lookup_timeout_and_500_fail_closed() -> None:
             RuntimeConfigurationError, match="destination lookup failed"
         ) as caught:
             await resolve_sip_inbound_dispatch(
-                ctx, participant=participant, http=http, clock=clock,
+                ctx,
+                participant=participant,
+                http=http,
+                clock=clock,
                 lookup_token=LOOKUP_TOKEN,
             )
     assert caught.value.__cause__ is None
@@ -157,7 +160,10 @@ async def test_lookup_timeout_and_500_fail_closed() -> None:
     async with _http(boom_handler) as http:
         with pytest.raises(RuntimeConfigurationError, match="HTTP 500"):
             await resolve_sip_inbound_dispatch(
-                ctx, participant=participant, http=http, clock=clock,
+                ctx,
+                participant=participant,
+                http=http,
+                clock=clock,
                 lookup_token=LOOKUP_TOKEN,
             )
 
@@ -235,9 +241,9 @@ async def test_enabled_must_be_boolean() -> None:
         with pytest.raises(
             RuntimeConfigurationError, match="enabled must be a boolean"
         ):
-            await PlatformDestinationResolver(
-                http, lookup_token=LOOKUP_TOKEN
-            ).resolve(CALLEE_A)
+            await PlatformDestinationResolver(http, lookup_token=LOOKUP_TOKEN).resolve(
+                CALLEE_A
+            )
 
 
 @pytest.mark.asyncio
@@ -259,9 +265,9 @@ async def test_lookup_401_fails_closed() -> None:
 
     async with _http(handler) as http:
         with pytest.raises(RuntimeConfigurationError, match="HTTP 401"):
-            await PlatformDestinationResolver(
-                http, lookup_token=LOOKUP_TOKEN
-            ).resolve(CALLEE_A)
+            await PlatformDestinationResolver(http, lookup_token=LOOKUP_TOKEN).resolve(
+                CALLEE_A
+            )
 
 
 @pytest.mark.asyncio
