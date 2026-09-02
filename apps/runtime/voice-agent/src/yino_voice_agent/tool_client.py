@@ -38,11 +38,13 @@ class ToolInvocationClient:
         *,
         timeout_s: float = DEFAULT_TOOL_TIMEOUT_S,
         trace: SessionTrace | None = None,
+        metrics: object | None = None,
     ) -> None:
         self._http = http
         self._tenant_id = tenant_id
         self._timeout_s = timeout_s
         self._trace = trace
+        self._metrics = metrics
 
     async def invoke(
         self,
@@ -87,6 +89,9 @@ class ToolInvocationClient:
 
         attempts = _MAX_IDEMPOTENT_ATTEMPTS if tool_name in IDEMPOTENT_TOOL_NAMES else 1
         last: dict[str, Any] | None = None
+        note = getattr(self._metrics, "note_tool_request", None)
+        if callable(note):
+            note()
         for attempt in range(attempts):
             if self._trace is not None:
                 self._trace.mark("tool_request")
@@ -98,6 +103,14 @@ class ToolInvocationClient:
             if last is not None and last.get("code") == "retryable_transport":
                 if attempt + 1 < attempts:
                     continue
+                method = (
+                    "note_tool_timeout"
+                    if last.get("message") == "timeout"
+                    else "note_tool_error"
+                )
+                fn = getattr(self._metrics, method, None)
+                if callable(fn):
+                    fn()
                 return last
             return last
         return last

@@ -61,6 +61,22 @@ async def test_recording_start_failure_does_not_raise() -> None:
 
 
 @pytest.mark.asyncio
+async def test_recording_failure_does_not_change_readiness() -> None:
+    from yino_voice_agent.ops import WorkerRuntime
+
+    worker = WorkerRuntime()
+    worker.mark_ready()
+    sink = _Sink(fail=True)
+    controller = RecordingController(enabled=True, sink=sink)
+    controller.request_start("room-ops")
+    await asyncio.sleep(0)
+    await controller.notify_session_ended()
+    assert controller.failed is True
+    assert worker.livez() == {"status": "ok"}
+    assert worker.readyz()["ready"] is True
+
+
+@pytest.mark.asyncio
 async def test_session_ends_before_egress_starts() -> None:
     sink = _Sink(hang=True)
     controller = RecordingController(enabled=True, sink=sink)

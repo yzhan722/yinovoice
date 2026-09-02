@@ -52,10 +52,12 @@ class CallLifecycleClient:
         tenant_id: UUID,
         *,
         trace: SessionTrace | None = None,
+        metrics: object | None = None,
     ) -> None:
         self._http = http
         self._tenant_id = tenant_id
         self._trace = trace
+        self._metrics = metrics
         self.record_id: UUID | None = None
         self._start_payload: dict[str, Any] | None = None
         self._pending_messages: list[dict[str, Any]] = []
@@ -147,6 +149,9 @@ class CallLifecycleClient:
                 return
             self._finish_http_started = True
             selected_status, selected_reason = self._finish_selected or candidate
+        note_attempt = getattr(self._metrics, "note_finish_attempt", None)
+        if callable(note_attempt):
+            note_attempt()
         if self._trace is not None:
             self._trace.mark("finish_start")
         try:
@@ -201,6 +206,9 @@ class CallLifecycleClient:
                     self.record_id,
                     type(error).__name__,
                 )
+                note_fail = getattr(self._metrics, "note_finish_failure", None)
+                if callable(note_fail):
+                    note_fail()
 
     async def _post_start(self, payload: dict[str, Any]) -> None:
         async with self._write_lock:

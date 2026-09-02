@@ -241,3 +241,24 @@ async def test_appointment_conflict_is_never_success() -> None:
     assert result["status"] != "ok"
     assert "成功" not in result["customer_message"]
     assert "HTTP" not in result["customer_message"]
+
+
+@pytest.mark.asyncio
+async def test_tool_timeout_increments_metrics() -> None:
+    from yino_voice_agent.ops import RuntimeMetrics
+
+    metrics = RuntimeMetrics()
+    platform = FakePlatform(FailureScenario(tool_timeout=True))
+    async with httpx.AsyncClient(
+        transport=platform, base_url="http://platform.test"
+    ) as http:
+        client = ToolInvocationClient(http, TENANT, timeout_s=0.05, metrics=metrics)
+        result = await client.invoke(
+            session_id="room-to",
+            tool_name="check_availability",
+            arguments={"day": "2026-09-02"},
+        )
+    assert result is not None
+    assert result["code"] == "retryable_transport"
+    assert metrics.tool_requests == 1
+    assert metrics.tool_timeouts == 1

@@ -11,6 +11,7 @@ from yino_voice_agent.call_lifecycle import (
     CallLifecycleClient,
     direction_for_channel,
 )
+from yino_voice_agent.ops import RuntimeMetrics
 from yino_voice_agent.runtime_config import DispatchMetadata
 
 
@@ -313,9 +314,7 @@ async def test_cancelled_finish_caller_does_not_deadlock_or_double_http() -> Non
         transport=transport,
         base_url="http://platform.test",
     ) as http:
-        client = CallLifecycleClient(
-            http, UUID("00000000-0000-0000-0000-000000000001")
-        )
+        client = CallLifecycleClient(http, UUID("00000000-0000-0000-0000-000000000001"))
         await client.start_from_dispatch(_metadata(), "sip-room-1")
         blocked = asyncio.create_task(
             client.finish(status="completed", ended_reason="user_hangup")
@@ -346,12 +345,15 @@ async def test_finish_http_failure_does_not_retry_on_second_caller() -> None:
         return httpx.Response(200, json={"id": str(record_id)})
 
     transport = httpx.MockTransport(handler)
+    metrics = RuntimeMetrics()
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://platform.test",
     ) as http:
         client = CallLifecycleClient(
-            http, UUID("00000000-0000-0000-0000-000000000001")
+            http,
+            UUID("00000000-0000-0000-0000-000000000001"),
+            metrics=metrics,
         )
         await client.start_from_dispatch(_metadata(), "sip-room-1")
         await client.finish(status="completed", ended_reason="user_hangup")
@@ -359,4 +361,5 @@ async def test_finish_http_failure_does_not_retry_on_second_caller() -> None:
 
     assert finish_count["n"] == 1
     assert client._finish_committed is True
-
+    assert metrics.finish_attempts == 1
+    assert metrics.finish_failures == 1
