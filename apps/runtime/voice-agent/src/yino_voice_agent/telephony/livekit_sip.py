@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Protocol
 
-from ..runtime_config import RuntimeConfigurationError
+from ..errors import TelephonyNormalizationError
 from ..session_trace import redact_phone_numbers
 from .inbound import NormalizedInboundCall
 
@@ -119,23 +119,23 @@ def normalize_livekit_sip_participant(
     clock: UtcClock | None = None,
 ) -> NormalizedInboundCall:
     if not is_sip_participant(participant):
-        raise RuntimeConfigurationError("participant is not a LiveKit SIP caller")
+        raise TelephonyNormalizationError("participant is not a LiveKit SIP caller")
     attributes = getattr(participant, "attributes", None)
     if not isinstance(attributes, Mapping):
-        raise RuntimeConfigurationError("SIP participant attributes are missing")
+        raise TelephonyNormalizationError("SIP participant attributes are missing")
 
     call_id_full = _attr(attributes, "sip.callIDFull")
     call_id = _attr(attributes, "sip.callID")
     provider_call_id = call_id_full or call_id
     if provider_call_id is None:
-        raise RuntimeConfigurationError("SIP participant is missing sip.callID")
+        raise TelephonyNormalizationError("SIP participant is missing sip.callID")
 
     callee = _attr(attributes, "sip.trunkPhoneNumber")
     if callee is None:
-        raise RuntimeConfigurationError("SIP participant is missing callee number")
+        raise TelephonyNormalizationError("SIP participant is missing callee number")
     callee_e164 = coerce_presented_number_to_e164(callee)
     if callee_e164 is None:
-        raise RuntimeConfigurationError("callee number must be E.164")
+        raise TelephonyNormalizationError("callee number must be E.164")
 
     caller = _caller_number(_attr(attributes, "sip.phoneNumber"))
     instant = (clock or SystemUtcClock()).now()

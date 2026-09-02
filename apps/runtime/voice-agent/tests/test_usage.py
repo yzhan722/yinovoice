@@ -39,13 +39,25 @@ def test_parse_ignores_response_done_without_usage() -> None:
     assert parse_response_usage(event) is None
 
 
-def test_accumulator_sums_turns() -> None:
+def test_accumulator_sums_distinct_responses() -> None:
     acc = CallUsageAccumulator()
-    acc.add(_done_event())
-    acc.add(_done_event())
+    first = _done_event()
+    second = _done_event()
+    second["response"]["id"] = "resp-2"
+    acc.add(first)
+    acc.add(second)
     acc.add({"type": "response.done", "response": {"id": "empty"}})
     snapshot = acc.snapshot()
     assert snapshot.response_count == 2
     assert snapshot.total_tokens == 180
     assert snapshot.input_audio_tokens == 96
     assert acc.snapshot().total_tokens == 180
+
+
+def test_duplicate_response_done_id_is_not_double_counted() -> None:
+    acc = CallUsageAccumulator()
+    acc.add(_done_event())
+    acc.add(_done_event())
+    snapshot = acc.snapshot()
+    assert snapshot.response_count == 1
+    assert snapshot.total_tokens == 90

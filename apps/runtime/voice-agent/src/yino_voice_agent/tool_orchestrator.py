@@ -37,6 +37,9 @@ class ToolOrchestrator:
         self._closed = True
         if self._trace is not None:
             self._trace.mark("session_close")
+        for task in list(self._tasks):
+            if not task.done():
+                task.cancel()
 
     def spawn(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
         task = asyncio.create_task(coro)
@@ -69,9 +72,7 @@ class ToolOrchestrator:
             if self._trace is not None:
                 self._trace.mark("assistant_response_start")
             self._sequence += 1
-            await self._lifecycle.append_final(
-                "assistant", turn.spoken, self._sequence
-            )
+            await self._lifecycle.append_final("assistant", turn.spoken, self._sequence)
         if (
             turn.marker is not None
             and self._tools is not None
@@ -82,12 +83,20 @@ class ToolOrchestrator:
             call_record_id = (
                 self._lifecycle.record_id if self._lifecycle is not None else None
             )
-            await self._tools.invoke(
-                session_id=self._session_id,
-                tool_name=turn.marker.tool_name,
-                arguments=arguments,
-                voice_agent_instance_id=self._instance_id,
-                call_record_id=call_record_id,
-                idempotency_key=f"{self._session_id}:{turn.marker.raw}",
+            invoke_task = self.spawn(
+                self._tools.invoke(
+                    session_id=self._session_id,
+                    tool_name=turn.marker.tool_name,
+                    arguments=arguments,
+                    voice_agent_instance_id=self._instance_id,
+                    call_record_id=call_record_id,
+                    idempotency_key=f"{self._session_id}:{turn.marker.raw}",
+                )
             )
+            try:
+                await invoke_task
+            except asyncio.CancelledError:
+                if self._closed:
+                    return turn
+                raise
         return turn

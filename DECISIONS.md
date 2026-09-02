@@ -66,6 +66,15 @@
 | 去重 | 生产路径不做进程内 seen-call-id set；exactly-once 仍由 lifecycle `/finish` 保证 |
 | 失败 | lookup 无 token / 401 / 404 / disabled / timeout / 5xx 全部 fail closed，不得进入 local default agent |
 
+## 2026-09-02 Runtime hardening
+
+| 决策 | 内容 |
+|---|---|
+| Usage 去重 | 同一 Qwen `response.id` 的重复 `response.done` 只计一次；没有稳定 id 时不去发明 id |
+| 畸形事件 | 无法解析的 Qwen JSON/字段错误跳过，不得拆掉整段会话 |
+| Tool 重试 | 仅 `check_availability` 可对 transport/5xx 重试；写操作默认不自动重试 |
+| 延迟数字 | 本阶段 P50/P95 只标记 SYNTHETIC；不得写成真实电话 RTT |
+
 ## 2026-08-31 Monorepo 合仓与两人并行分支
 
 | 决策 | 内容 |

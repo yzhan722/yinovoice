@@ -1,5 +1,12 @@
 # PROJECT_STATUS
 
+## 2026-09-02 DEV-A Runtime hardening (synthetic)
+
+- Voice Agent local suite **308 passed**. Concurrency 10/25/50, finish race matrix, Qwen malformed/unexpected events, barge-in, tool cancel, FakeClock soak (500 turns / 1000 `response.done`), replay + SIP synthetic fixtures, worker drain, recording seam.
+- Usage is session-local deduped by Qwen `response.id`. Malformed events do not crash the agent. Tool non-idempotent names are still not retried.
+- Latency numbers in `docs/realtime/runtime-hardening-results.md` are **SYNTHETIC**. Real calls tested: **0**. Status remains **NEEDS_LIVEKIT_PROVISIONING**, not `LIVE_SIP_E2E_PASS`.
+- No new Control Plane / Call Insights work this campaign. API / Insights failures stay **OUT_OF_SCOPE_B**.
+
 ## 2026-09-01 DEV-A Egress / usage / lookup 鉴权
 
 - LiveKit RoomComposite 音频 Egress 客户端已接控制面：S3 四件套 + LiveKit API 配齐后写入既有对象键；失败不挂断。CI 不连真实桶。

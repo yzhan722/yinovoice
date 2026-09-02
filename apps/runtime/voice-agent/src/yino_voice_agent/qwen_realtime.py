@@ -8,13 +8,16 @@ from array import array
 from collections import deque
 from collections.abc import AsyncIterable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import aiohttp
 from livekit import rtc
 from livekit.agents import llm, utils
 from livekit.agents.types import NOT_GIVEN, NotGivenOr
+
+if TYPE_CHECKING:
+    from .session_trace import SessionTrace
 
 logger = logging.getLogger("yino_voice_agent.qwen_realtime")
 
@@ -116,7 +119,7 @@ class _AiohttpQwenConnector:
         session = aiohttp.ClientSession()
         try:
             socket = await session.ws_connect(url, headers=headers)
-        except Exception:
+        except BaseException:
             await session.close()
             raise
         return _AiohttpQwenSocket(session, socket)
@@ -207,11 +210,15 @@ class QwenRealtimeModel(llm.RealtimeModel):
         self._connector = connector or _AiohttpQwenConnector()
         self._sessions: weakref.WeakSet[QwenRealtimeSession] = weakref.WeakSet()
         self._usage_sink: Callable[[Mapping[str, object]], None] | None = None
+        self._trace: SessionTrace | None = None
 
     def attach_usage_sink(
         self, sink: Callable[[Mapping[str, object]], None]
     ) -> None:
         self._usage_sink = sink
+
+    def attach_trace(self, trace: SessionTrace) -> None:
+        self._trace = trace
 
     @property
     def model(self) -> str:
@@ -724,7 +731,12 @@ class QwenRealtimeSession(llm.RealtimeSession):
         # Response may already be finishing; cancel is best-effort and must not
         # become a fatal "no active response" teardown.
         self._suppressed_response_ids.add(response_id)
+        trace = getattr(self._model, "_trace", None)
+        if trace is not None:
+            trace.mark("interrupt_start")
         self._queue_event(build_response_cancel())
+        if trace is not None:
+            trace.mark("interrupt_complete")
 
     def truncate(
         self,
@@ -920,7 +932,7 @@ class QwenRealtimeSession(llm.RealtimeSession):
                     event = parse_server_event(raw)
                     self._handle_server_event(event)
                 except QwenProtocolError:
-                    self._emit_model_error("invalid Qwen realtime server event")
+                    logger.warning("qwen skipped malformed server event")
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -1004,6 +1016,8 @@ class QwenRealtimeSession(llm.RealtimeSession):
             if not self._session_accepts_audio:
                 self._session_accepts_audio = True
                 logger.info("qwen session ready; accepting input audio")
+        elif event_type == "session.created":
+            logger.debug("qwen session.created")
         else:
             logger.debug("qwen realtime unhandled event type=%s", event_type)
 
@@ -1036,7 +1050,7 @@ class QwenRealtimeSession(llm.RealtimeSession):
                 self._manual_response_requested = False
                 self._cancel_commit_response_fallback()
             return
-        logger.error("qwen realtime server error event=%s", dict(event))
+        logger.error("qwen realtime server error")
         self._emit_model_error("Qwen realtime server error")
         self._terminate("Qwen realtime server error")
 
@@ -1052,6 +1066,9 @@ class QwenRealtimeSession(llm.RealtimeSession):
         self._last_meaningful_audio_at = now
         self._meaningful_appends_since_speech_start = 0
         self._arm_stuck_speech_watchdog()
+        trace = getattr(self._model, "_trace", None)
+        if trace is not None:
+            trace.mark("first_user_audio")
         # Debounce cancel while assistant audio is playing — speaker echo often
         # fires speech_started and would otherwise cancel mid-reply.
         if self._active_response_id is not None:
@@ -1064,6 +1081,9 @@ class QwenRealtimeSession(llm.RealtimeSession):
         self._cancel_stuck_speech_watchdog()
         self._cancel_barge_in_confirm()
         self._input_speech_active = False
+        trace = getattr(self._model, "_trace", None)
+        if trace is not None:
+            trace.mark("user_speech_end")
         if event.get("reason") == "turn_invalid":
             self._smart_turn_active = False
             self._smart_turn_response_id = None
@@ -1111,6 +1131,9 @@ class QwenRealtimeSession(llm.RealtimeSession):
             ),
         )
         logger.info("qwen user transcript final chars=%s", len(transcript))
+        trace = getattr(self._model, "_trace", None)
+        if trace is not None:
+            trace.mark("final_user_transcript")
 
     def _handle_response_created(self, event: Mapping[str, object]) -> None:
         response = event.get("response")
@@ -1131,6 +1154,10 @@ class QwenRealtimeSession(llm.RealtimeSession):
             previous.close()
         self._responses[response_id] = generation
         self._active_response_id = response_id
+        trace = getattr(self._model, "_trace", None)
+        if trace is not None:
+            trace.mark("model_request_start")
+            trace.mark("model_first_event")
         if self._cancel_pending_response:
             self._cancel_pending_response = False
             self._suppressed_response_ids.add(response_id)
@@ -1230,6 +1257,9 @@ class QwenRealtimeSession(llm.RealtimeSession):
                 samples_per_channel=len(pcm) // 2,
             )
         )
+        trace = getattr(self._model, "_trace", None)
+        if trace is not None:
+            trace.mark("first_assistant_audio")
 
     def _handle_output_item_done(self, event: Mapping[str, object]) -> None:
         generation = self._generation_for(event)

@@ -7,6 +7,7 @@ from uuid import UUID
 
 import httpx
 
+from ..errors import DestinationResolutionError
 from ..runtime_config import RuntimeConfigurationError
 from .inbound import ResolvedDestination
 
@@ -32,7 +33,7 @@ class PlatformDestinationResolver:
 
     async def resolve(self, callee_number: str) -> ResolvedDestination | None:
         if self._lookup_token is None:
-            raise RuntimeConfigurationError(
+            raise DestinationResolutionError(
                 "destination lookup token is not configured"
             )
         try:
@@ -42,21 +43,21 @@ class PlatformDestinationResolver:
                 headers={PHONE_LOOKUP_HEADER: self._lookup_token},
             )
         except (httpx.TimeoutException, httpx.TransportError, TimeoutError):
-            raise RuntimeConfigurationError("destination lookup failed") from None
+            raise DestinationResolutionError("destination lookup failed") from None
         if response.status_code == 404:
             return None
         if response.status_code >= 400:
-            raise RuntimeConfigurationError(
+            raise DestinationResolutionError(
                 f"destination lookup HTTP {response.status_code}"
             )
         try:
             body = response.json()
         except ValueError as error:
-            raise RuntimeConfigurationError(
+            raise DestinationResolutionError(
                 "destination lookup must be a JSON object"
             ) from error
         if not isinstance(body, dict):
-            raise RuntimeConfigurationError("destination lookup must be a JSON object")
+            raise DestinationResolutionError("destination lookup must be a JSON object")
         try:
             return _destination_from_lookup(body)
         except RuntimeConfigurationError:

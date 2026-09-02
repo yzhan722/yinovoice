@@ -12,6 +12,7 @@
 - [x] DEV-A LiveKit Egress → S3 客户端（RoomComposite audio/OGG；缺 S3 则关闭；CI 不连真实桶）
 - [x] DEV-A `response.done` usage 入账（finish JSON + `call_records.usage`）
 - [x] lookup 鉴权归控制面（`X-Phone-Lookup-Token`；空 token 401）
+- [x] DEV-A Runtime hardening campaign (synthetic concurrency / races / replay / soak; 2026-09-02). Real SIP still **NEEDS_LIVEKIT_PROVISIONING**
 - [ ] DEV-A Live SIP Stage E2E → `LIVE_SIP_E2E_PASS`（2026-09-01 停在 **NEEDS_LIVEKIT_PROVISIONING**：无凭据、无 worker、trunk/DID/dispatch 未在本机可见）
 - [ ] Integrator 验收后再合 `main`
 

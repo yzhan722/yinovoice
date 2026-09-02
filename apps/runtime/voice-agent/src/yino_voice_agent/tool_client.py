@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 from uuid import UUID
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TOOL_TIMEOUT_S = 5.0
 _MAX_IDEMPOTENT_ATTEMPTS = 2
+MAX_TOOL_ARGUMENTS_BYTES = 16_384
 
 
 def _error_payload(code: str, message: str) -> dict[str, Any]:
@@ -58,6 +60,12 @@ class ToolInvocationClient:
                 redact_phone_numbers(session_id),
             )
             return _error_payload("invalid_arguments", "arguments must be an object")
+        try:
+            encoded = json.dumps(arguments)
+        except (TypeError, ValueError):
+            return _error_payload("invalid_arguments", "arguments must be json")
+        if len(encoded.encode("utf-8")) > MAX_TOOL_ARGUMENTS_BYTES:
+            return _error_payload("invalid_arguments", "arguments too large")
 
         payload: dict[str, Any] = {
             "session_id": session_id,
@@ -71,9 +79,7 @@ class ToolInvocationClient:
         if idempotency_key:
             payload["idempotency_key"] = idempotency_key
 
-        attempts = (
-            _MAX_IDEMPOTENT_ATTEMPTS if tool_name in IDEMPOTENT_TOOL_NAMES else 1
-        )
+        attempts = _MAX_IDEMPOTENT_ATTEMPTS if tool_name in IDEMPOTENT_TOOL_NAMES else 1
         last: dict[str, Any] | None = None
         for attempt in range(attempts):
             if self._trace is not None:
@@ -115,12 +121,14 @@ class ToolInvocationClient:
                 tool_name,
             )
             return _error_payload("retryable_transport", "timeout")
-        except Exception:
-            logger.exception(
-                "tool invocation failed tenant_id=%s session_id=%s tool=%s",
+        except Exception as error:
+            logger.error(
+                "tool invocation failed tenant_id=%s session_id=%s tool=%s "
+                "error_type=%s",
                 self._tenant_id,
                 redact_phone_numbers(session_id),
                 tool_name,
+                type(error).__name__,
             )
             return _error_payload("retryable_transport", "transport")
 
