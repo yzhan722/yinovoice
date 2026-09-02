@@ -8,7 +8,8 @@ Run via scripts/smoke_commercial_mvp.py or:
 
 from __future__ import annotations
 
-from datetime import date
+from collections.abc import Callable
+from datetime import date, datetime
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -29,7 +30,7 @@ from yino_platform_api.repositories.tool_invocations import (
 from yino_platform_api.services.notifications import InMemoryNotificationRepository
 
 
-def _client(ids) -> TestClient:
+def _client(ids, now_provider: Callable[[], datetime]) -> TestClient:
     instance = CustomerServiceInstance.demo(
         instance_id=ids.instance_id,
         tenant_id=ids.tenant_id,
@@ -44,6 +45,7 @@ def _client(ids) -> TestClient:
             scheduling_repository=InMemorySchedulingRepository(),
             tool_invocation_repository=InMemoryToolInvocationRepository(),
             notification_repository=InMemoryNotificationRepository(),
+            now_provider=now_provider,
         )
     )
 
@@ -52,8 +54,11 @@ def _headers(tenant_id: UUID) -> dict[str, str]:
     return {"X-Tenant-ID": str(tenant_id)}
 
 
-def test_commercial_mvp_synthetic_loop_a_to_e(ids) -> None:
-    client = _client(ids)
+def test_commercial_mvp_synthetic_loop_a_to_e(
+    ids,
+    fixed_now_provider: Callable[[], datetime],
+) -> None:
+    client = _client(ids, fixed_now_provider)
     headers = _headers(ids.tenant_id)
 
     created_phone = client.post(

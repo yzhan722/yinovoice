@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -29,6 +31,16 @@ def ids() -> TestIds:
         other_tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
         instance_id=UUID("00000000-0000-0000-0000-000000000101"),
     )
+
+
+@pytest.fixture
+def fixed_now_provider() -> Callable[[], datetime]:
+    fixed_now = datetime(2026, 8, 30, tzinfo=UTC)
+
+    def now() -> datetime:
+        return fixed_now
+
+    return now
 
 
 @pytest.fixture

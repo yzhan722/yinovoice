@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from .clock import NowProvider, utc_now
 from .config import PlatformSettings
 from .db.engine import create_db_engine, create_session_factory
 from .db.seed import ensure_demo_seed
@@ -123,6 +124,7 @@ def create_app(
     knowledge_repository: KnowledgeRepository | None = None,
     recording_dir: Path | str | None = None,
     call_recording_max_bytes: int | None = None,
+    now_provider: NowProvider = utc_now,
 ) -> FastAPI:
     settings = PlatformSettings()
     engine: AsyncEngine | None = None
@@ -358,6 +360,7 @@ def create_app(
                 notifications=notification_service,
                 egress=egress_service,
                 insights_dispatch=insights_dispatch_repository,
+                now_provider=now_provider,
             )
         )
     )
@@ -366,6 +369,7 @@ def create_app(
             appointment_repository,
             repository,
             scheduling_repository,
+            now_provider=now_provider,
         )
     )
     app.include_router(
@@ -379,6 +383,7 @@ def create_app(
             scheduling_repository,
             repository,
             appointment_repository,
+            now_provider=now_provider,
         )
     )
     app.include_router(
@@ -390,6 +395,7 @@ def create_app(
                 scheduling=scheduling_repository,
                 call_records=call_record_repository,
                 notifications=notification_service,
+                now_provider=now_provider,
             )
         )
     )
