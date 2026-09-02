@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -14,6 +15,12 @@ from livekit.agents import AgentServer, JobContext, cli
 
 from .call_lifecycle import CallLifecycleClient
 from .config import DEFAULT_LIVEKIT_AGENT_NAME, VoiceSettings
+from .conversation import (
+    Action,
+    ActionKind,
+    ConversationDirector,
+    ConversationEvent,
+)
 from .customer_service import create_customer_service
 from .providers import ProviderBundle, build_providers
 from .runtime_config import (
@@ -32,6 +39,7 @@ from .telephony.dispatch import (
 from .telephony.livekit_sip import is_sip_participant
 from .tool_client import ToolInvocationClient
 from .tool_orchestrator import ToolOrchestrator
+from .voice_ux_config import VoiceUxSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +107,7 @@ async def create_dispatched_runtime(
 
 load_dotenv(".env.local")
 server = AgentServer()
+logger = logging.getLogger(__name__)
 
 # Isolate parallel deployments (prod vs stage1) via LIVEKIT_AGENT_NAME.
 # SIP inbound Dispatch Rules must use this same name and leave job metadata empty
@@ -184,9 +193,7 @@ async def _speak_with_optional_lifecycle(
             platform_prompt=customer_service.platform_prompt,
             tenant_prompt=customer_service.tenant_prompt,
             brevity=customer_service.response.brevity,
-            max_spoken_sentences=(
-                customer_service.response.max_spoken_sentences
-            ),
+            max_spoken_sentences=(customer_service.response.max_spoken_sentences),
             ask_one_question_at_a_time=(
                 customer_service.response.ask_one_question_at_a_time
             ),
@@ -203,30 +210,15 @@ async def _speak_with_optional_lifecycle(
             )
         elif not trace.call_id:
             trace.call_id = metadata.provider_call_id
-        lifecycle = CallLifecycleClient(
-            http_client, metadata.tenant_id, trace=trace
-        )
+        lifecycle = CallLifecycleClient(http_client, metadata.tenant_id, trace=trace)
         await lifecycle.start_from_dispatch(metadata, _room_name(ctx))
-        orchestrator = ToolOrchestrator(
-            tools=ToolInvocationClient(
-                http_client, metadata.tenant_id, trace=trace
-            ),
-            lifecycle=lifecycle,
-            session_id=_room_name(ctx),
-            voice_agent_instance_id=metadata.customer_service_id,
-            trace=trace,
-        )
 
     session = create_session(runtime.providers, runtime.vad)
-    if lifecycle is not None:
-        attach_usage = getattr(runtime.providers.llm, "attach_usage_sink", None)
-        if callable(attach_usage):
-            attach_usage(lifecycle.record_usage)
-    if orchestrator is not None:
-        _bind_orchestrator(session, orchestrator)
     closed = asyncio.Event()
     close_events: list[object] = []
     finish_tasks: list[asyncio.Task[None]] = []
+    ux = getattr(runtime.settings, "ux", None) or VoiceUxSettings()
+    director: ConversationDirector | None = None
 
     async def request_finish(status: str, ended_reason: str) -> None:
         try:
@@ -236,6 +228,81 @@ async def _speak_with_optional_lifecycle(
                 await lifecycle.finish(status=status, ended_reason=ended_reason)
         finally:
             closed.set()
+
+    def apply_ux(actions: tuple[Action, ...]) -> None:
+        for action in actions:
+            if action.kind is ActionKind.SPEAK_GREETING:
+                session.say(
+                    greeting,
+                    allow_interruptions=True,
+                    add_to_chat_ctx=False,
+                )
+                if director is not None:
+                    director.handle(ConversationEvent.GREETING_STARTED)
+                continue
+            if (
+                action.kind
+                in {
+                    ActionKind.SPEAK_SILENCE_PROMPT,
+                    ActionKind.SPEAK_POLITE_CLOSE,
+                    ActionKind.SPEAK_SESSION_LIMIT,
+                    ActionKind.SPEAK_TOOL_BRIDGE,
+                    ActionKind.SPEAK_TOOL_FAILURE,
+                }
+                and action.text
+            ):
+                try:
+                    session.say(
+                        action.text,
+                        allow_interruptions=True,
+                        add_to_chat_ctx=False,
+                    )
+                except Exception as error:
+                    logger.error(
+                        "voice ux speak failed kind=%s error_type=%s",
+                        action.kind,
+                        type(error).__name__,
+                    )
+                continue
+            if action.kind is ActionKind.CANCEL_ASSISTANT:
+                interrupt = getattr(session, "interrupt", None)
+                if callable(interrupt):
+                    interrupt()
+                continue
+            if action.kind is ActionKind.REQUEST_FINISH:
+                finish_tasks.append(
+                    asyncio.create_task(
+                        request_finish(
+                            action.finish_status or "completed",
+                            action.finish_reason or "completed",
+                        )
+                    )
+                )
+
+    director = ConversationDirector(ux, trace=trace, on_actions=apply_ux)
+    llm = getattr(runtime.providers, "llm", None)
+    attach_trace = getattr(llm, "attach_trace", None)
+    if callable(attach_trace) and trace is not None:
+        attach_trace(trace)
+    attach_conversation = getattr(llm, "attach_conversation", None)
+    if callable(attach_conversation):
+        attach_conversation(director)
+    orchestrator = None
+    if metadata is not None and http_client is not None and lifecycle is not None:
+        orchestrator = ToolOrchestrator(
+            tools=ToolInvocationClient(http_client, metadata.tenant_id, trace=trace),
+            lifecycle=lifecycle,
+            session_id=_room_name(ctx),
+            voice_agent_instance_id=metadata.customer_service_id,
+            trace=trace,
+            conversation=director,
+        )
+    if lifecycle is not None:
+        attach_usage = getattr(runtime.providers.llm, "attach_usage_sink", None)
+        if callable(attach_usage):
+            attach_usage(lifecycle.record_usage)
+    if orchestrator is not None:
+        _bind_orchestrator(session, orchestrator)
 
     on = getattr(session, "on", None)
     if callable(on):
@@ -265,11 +332,8 @@ async def _speak_with_optional_lifecycle(
             )
             if trace is not None:
                 trace.mark("runtime_ready")
-            session.say(
-                greeting,
-                allow_interruptions=True,
-                add_to_chat_ctx=False,
-            )
+            director.handle(ConversationEvent.SESSION_READY)
+            director.start_background()
         except Exception:
             await request_finish("failed", "agent_error")
             raise
@@ -278,6 +342,7 @@ async def _speak_with_optional_lifecycle(
         elif lifecycle is not None:
             await request_finish("completed", "completed")
     finally:
+        await director.aclose()
         if orchestrator is not None:
             orchestrator.mark_closed()
             await orchestrator.wait_idle()
@@ -335,8 +400,14 @@ def _bind_orchestrator(session: object, orchestrator: ToolOrchestrator) -> None:
         if not getattr(event, "is_final", False):
             return
         transcript = getattr(event, "transcript", "")
+        item_id = getattr(event, "item_id", None)
         if isinstance(transcript, str) and transcript.strip():
-            orchestrator.spawn(orchestrator.handle_user_final(transcript))
+            orchestrator.spawn(
+                orchestrator.handle_user_final(
+                    transcript,
+                    item_id=item_id if isinstance(item_id, str) else None,
+                )
+            )
 
     def _on_item(event: object) -> None:
         item = getattr(event, "item", None)

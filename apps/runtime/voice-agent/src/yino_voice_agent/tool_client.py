@@ -8,6 +8,7 @@ from uuid import UUID
 
 import httpx
 
+from .customer_safe import CUSTOMER_UNAVAILABLE, customer_safe_message
 from .session_trace import SessionTrace, redact_phone_numbers
 from .tool_protocol import ALLOWED_TOOL_NAMES, IDEMPOTENT_TOOL_NAMES
 
@@ -19,7 +20,12 @@ MAX_TOOL_ARGUMENTS_BYTES = 16_384
 
 
 def _error_payload(code: str, message: str) -> dict[str, Any]:
-    return {"status": "error", "code": code, "message": message}
+    return {
+        "status": "error",
+        "code": code,
+        "message": message,
+        "customer_message": customer_safe_message(message),
+    }
 
 
 class ToolInvocationClient:
@@ -90,10 +96,9 @@ class ToolInvocationClient:
             if self._trace is not None:
                 self._trace.mark("tool_result")
             if last is not None and last.get("code") == "retryable_transport":
-                last = None
                 if attempt + 1 < attempts:
                     continue
-                return None
+                return last
             return last
         return last
 
@@ -146,11 +151,15 @@ class ToolInvocationClient:
                 code = body.get("code")
                 message = body.get("message") or body.get("detail")
                 if isinstance(code, str):
-                    safe = message if isinstance(message, str) else "platform error"
+                    raw_message = (
+                        message if isinstance(message, str) else "platform error"
+                    )
+                    safe = customer_safe_message(raw_message)
                     return {
                         "status": body.get("status", "error"),
                         "code": code,
                         "message": safe,
+                        "customer_message": safe,
                         "data": body.get("data"),
                     }
             logger.error(
@@ -159,7 +168,7 @@ class ToolInvocationClient:
                 self._tenant_id,
                 redact_phone_numbers(session_id),
             )
-            return None
+            return _error_payload("platform_error", CUSTOMER_UNAVAILABLE)
         body = _read_json_object(response)
         return body
 

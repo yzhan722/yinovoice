@@ -18,7 +18,7 @@
 
 ## 主题文档
 
-- `docs/realtime/`：LiveKit SIP inbound Stage runbook、A→B lookup 契约变更请求、Egress/usage/lookup 鉴权、2026-09-01 Live SIP E2E 结果、2026-09-02 Runtime hardening baseline/results（SYNTHETIC）。
+- `docs/realtime/`：LiveKit SIP inbound Stage runbook、A→B lookup 契约变更请求、Egress/usage/lookup 鉴权、2026-09-01 Live SIP E2E 结果、2026-09-02 Runtime hardening 与 Voice UX results（SYNTHETIC）、conversation runtime map、Voice UX timer 契约请求。
 - `docs/architecture/`：当前架构说明。
 - `docs/platform/`：平台规格、设计和实施计划。
 - `.github/workflows/ci.yml`：api / voice-agent / web / call-insights / contracts 分 Job。

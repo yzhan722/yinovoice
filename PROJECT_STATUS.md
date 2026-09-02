@@ -1,5 +1,12 @@
 # PROJECT_STATUS
 
+## 2026-09-02 DEV-A Voice UX Runtime (synthetic)
+
+- Voice Agent local suite **357 passed**. ConversationDirector owns greeting-once, silence prompts (max 2), idle (180s), max session (1800s), tool bridge, and `FAIL_SESSION_ON_PROVIDER_DISCONNECT`.
+- Endpoint authority in qwen-realtime mode remains Qwen `server_vad`. Runtime does not add a second endpointing system. Context stays provider-managed (no client truncate).
+- Latency and soak numbers in `docs/realtime/voice-ux-runtime-results.md` are **SYNTHETIC**. Real PSTN calls: **0**. Status remains **NEEDS_LIVEKIT_PROVISIONING**.
+- No Control Plane / Call Insights implementation. Timer fields for tenants are a request-only contract note.
+
 ## 2026-09-02 DEV-A Runtime hardening (synthetic)
 
 - Voice Agent local suite **308 passed**. Concurrency 10/25/50, finish race matrix, Qwen malformed/unexpected events, barge-in, tool cancel, FakeClock soak (500 turns / 1000 `response.done`), replay + SIP synthetic fixtures, worker drain, recording seam.

@@ -25,9 +25,7 @@ class ProviderBundle:
 
 def _pipeline_value(value: str | None, name: str) -> str:
     if value is None:
-        raise UnsupportedProviderConfiguration(
-            f"{name} is required in pipeline mode"
-        )
+        raise UnsupportedProviderConfiguration(f"{name} is required in pipeline mode")
     return value
 
 
@@ -50,9 +48,7 @@ def build_providers(
                 platform_prompt=runtime_config.platform_prompt,
                 tenant_prompt=runtime_config.tenant_prompt,
                 brevity=runtime_config.response.brevity,
-                max_spoken_sentences=(
-                    runtime_config.response.max_spoken_sentences
-                ),
+                max_spoken_sentences=(runtime_config.response.max_spoken_sentences),
                 ask_one_question_at_a_time=(
                     runtime_config.response.ask_one_question_at_a_time
                 ),
@@ -73,15 +69,15 @@ def build_providers(
                 model=settings.qwen_realtime_model,
                 voice=realtime_voice,
                 instructions=realtime_instructions,
+                vad_threshold=settings.ux.endpoint_threshold,
+                silence_duration_ms=settings.ux.endpoint_silence_ms,
             ),
         )
 
     dashscope_websocket_url = _pipeline_value(
         settings.dashscope_websocket_url, "DASHSCOPE_WEBSOCKET_URL"
     )
-    openai_api_key = _pipeline_value(
-        settings.openai_api_key, "OPENAI_API_KEY"
-    )
+    openai_api_key = _pipeline_value(settings.openai_api_key, "OPENAI_API_KEY")
     fun_asr_model = _pipeline_value(settings.fun_asr_model, "FUN_ASR_MODEL")
     llm_model = _pipeline_value(settings.llm_model, "LLM_MODEL")
     tts_model = _pipeline_value(settings.tts_model, "TTS_MODEL")

@@ -36,6 +36,22 @@ def test_session_update_enables_audio_text_and_smart_turn() -> None:
     }
 
 
+def test_session_update_uses_configured_vad_fields() -> None:
+    event = build_session_update(
+        QwenSessionOptions(
+            instructions="使用标准普通话自然回答。",
+            voice="longanqian",
+            vad_threshold=0.5,
+            silence_duration_ms=700,
+        )
+    )
+    assert event["session"]["turn_detection"] == {
+        "type": "server_vad",
+        "threshold": 0.5,
+        "silence_duration_ms": 700,
+    }
+
+
 def test_audio_append_base64_encodes_pcm() -> None:
     assert build_audio_append(b"\x01\x02") == {
         "type": "input_audio_buffer.append",

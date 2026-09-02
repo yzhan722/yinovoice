@@ -99,12 +99,22 @@ async def test_tool_http_status_codes(status: int) -> None:
     assert len(create_calls) == 1
     if status >= 500:
         assert len(availability_calls) == 2
-        assert created is None
-        assert available is None
+        assert created is not None
+        assert created["status"] == "error"
+        assert created["code"] == "retryable_transport"
+        assert "HTTP" not in created["customer_message"]
+        assert available is not None
+        assert available["code"] == "retryable_transport"
     elif status >= 400:
         assert len(availability_calls) == 1
-        assert created is None
-        assert available is None
+        assert created is not None
+        assert created["status"] == "error"
+        assert created.get("status") != "ok"
+        assert created.get("status") != "success"
+        assert "HTTP" not in str(created.get("customer_message", ""))
+        assert "成功" not in str(created.get("customer_message", ""))
+        assert available is not None
+        assert available["status"] == "error"
 
 
 @pytest.mark.asyncio
@@ -125,8 +135,12 @@ async def test_tool_transport_errors(kind: str) -> None:
             tool_name="check_availability",
             arguments={"day": "2026-09-02"},
         )
-    assert created is None
-    assert available is None
+    assert created is not None
+    assert created["status"] == "error"
+    assert created["code"] == "retryable_transport"
+    assert "HTTP" not in created["customer_message"]
+    assert available is not None
+    assert available["code"] == "retryable_transport"
 
 
 @pytest.mark.asyncio
@@ -196,3 +210,34 @@ async def test_cancelled_error_propagates_from_tool_client() -> None:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+async def test_appointment_conflict_is_never_success() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/tool-invocations"):
+            return httpx.Response(
+                409,
+                json={
+                    "status": "error",
+                    "code": "availability_conflict",
+                    "message": "slot no longer available",
+                },
+            )
+        return httpx.Response(200, json={"ok": True})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://platform.test",
+    ) as http:
+        result = await ToolInvocationClient(http, TENANT).invoke(
+            session_id="room-slot",
+            tool_name="create_appointment",
+            arguments={"day": "2026-09-02"},
+        )
+    assert result is not None
+    assert result["status"] == "error"
+    assert result["code"] == "availability_conflict"
+    assert result["status"] != "ok"
+    assert "成功" not in result["customer_message"]
+    assert "HTTP" not in result["customer_message"]

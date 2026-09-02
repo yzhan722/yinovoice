@@ -237,6 +237,48 @@ async def test_speech_started_cancels_once_and_discards_late_old_output() -> Non
 
 
 @pytest.mark.asyncio
+async def test_duplicate_final_transcript_same_item_id_is_emitted_once() -> None:
+    socket = FakeQwenSocket()
+    model, session = await connected_session(socket)
+    transcripts: list[llm.InputTranscriptionCompleted] = []
+    session.on("input_audio_transcription_completed", transcripts.append)
+
+    payload = {
+        "type": "conversation.item.input_audio_transcription.completed",
+        "item_id": "user-dup",
+        "transcript": "我想预约",
+    }
+    await socket.push(payload)
+    await socket.push(payload)
+    await wait_for_length(transcripts, 1)
+    await asyncio.sleep(0)
+    assert len(transcripts) == 1
+    assert transcripts[0].is_final is True
+
+    await session.aclose()
+    await model.aclose()
+
+
+@pytest.mark.asyncio
+async def test_empty_final_transcript_is_not_emitted() -> None:
+    socket = FakeQwenSocket()
+    model, session = await connected_session(socket)
+    transcripts: list[llm.InputTranscriptionCompleted] = []
+    session.on("input_audio_transcription_completed", transcripts.append)
+    await socket.push(
+        {
+            "type": "conversation.item.input_audio_transcription.completed",
+            "item_id": "user-empty",
+            "transcript": "   ",
+        }
+    )
+    await asyncio.sleep(0)
+    assert transcripts == []
+    await session.aclose()
+    await model.aclose()
+
+
+@pytest.mark.asyncio
 async def test_speech_started_cancels_response_created_after_pending_greeting() -> None:
     socket = FakeQwenSocket()
     model, session = await connected_session(socket)
@@ -261,7 +303,9 @@ async def test_speech_started_cancels_response_created_after_pending_greeting() 
 
 
 @pytest.mark.asyncio
-async def test_stuck_speech_watchdog_force_commits(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_stuck_speech_watchdog_force_commits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         "yino_voice_agent.qwen_realtime.STUCK_SPEECH_SILENCE_S", 0.2
     )
@@ -456,7 +500,9 @@ async def test_recoverable_response_race_errors_keep_session_alive() -> None:
             "error": {
                 "type": "invalid_request_error",
                 "code": "invalid_value",
-                "message": "Cannot create response while another response is in progress.",
+                "message": (
+                    "Cannot create response while another response is in progress."
+                ),
                 "param": "response.create",
             },
         }

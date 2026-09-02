@@ -57,6 +57,13 @@ OBSERVED_EVENTS = frozenset(
         "finish_complete",
         "sip_normalized",
         "destination_resolved",
+        "silence_prompt",
+        "idle_timeout",
+        "session_timeout",
+        "greeting_started",
+        "greeting_skipped",
+        "provider_disconnect",
+        "response_cancelled",
     }
 )
 
@@ -75,6 +82,11 @@ _FIRST_ONLY = frozenset(
         "session_close",
         "sip_normalized",
         "destination_resolved",
+        "idle_timeout",
+        "session_timeout",
+        "greeting_started",
+        "greeting_skipped",
+        "provider_disconnect",
     }
 )
 

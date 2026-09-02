@@ -75,6 +75,18 @@
 | Tool 重试 | 仅 `check_availability` 可对 transport/5xx 重试；写操作默认不自动重试 |
 | 延迟数字 | 本阶段 P50/P95 只标记 SYNTHETIC；不得写成真实电话 RTT |
 
+## 2026-09-02 Voice UX Runtime
+
+| 决策 | 内容 |
+|---|---|
+| Conversation 状态 | Runtime `ConversationDirector` 是轮次/沉默/闲置/时长的权威；禁止 `CLOSED` 后再说话或再调 tool |
+| Greeting | 每 session 最多一次；可打断；调用方已在说话则跳过，不得晚补问候 |
+| Endpoint | `qwen-realtime` 模式以 Qwen `server_vad` 为 turn-end；不并行第二套 endpointing |
+| Provider 断开 | `FAIL_SESSION_ON_PROVIDER_DISCONNECT`；不假装重连恢复上下文；不为了兜底一句话再开第二次模型连接 |
+| Context | Provider 管理；不在客户端 truncate/delete conversation items |
+| 配置归属 | `VOICE_UX_*` 为 Runtime 默认；租户级字段需 B 契约，本轮不改 Control Plane |
+| 延迟数字 | 与 hardening 相同：只标记 SYNTHETIC |
+
 ## 2026-08-31 Monorepo 合仓与两人并行分支
 
 | 决策 | 内容 |

@@ -96,4 +96,8 @@ async def test_tool_http_failure_does_not_raise() -> None:
             tool_name="create_callback",
             arguments={"phone": "13800138000"},
         )
-    assert result is None
+    assert result is not None
+    assert result["status"] == "error"
+    assert result["code"] == "retryable_transport"
+    assert "503" not in result["customer_message"]
+    assert "HTTP" not in result["customer_message"]

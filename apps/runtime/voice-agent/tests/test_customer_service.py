@@ -21,7 +21,9 @@ def test_customer_service_uses_spoken_mandarin_rules() -> None:
 
     assert "标准普通话" in instructions
     assert "每次回答最多 3 句话" in instructions
-    assert "不要使用 Markdown" in instructions
+    assert "不要把 HTTP、JSON、堆栈或内部错误码读给来电者" in instructions
+    assert "不要编造档期或可用性" in instructions
+    assert "口语自然读出" in instructions
 
 
 def test_customer_service_answers_truthfully_when_directly_asked_if_it_is_ai() -> None:
