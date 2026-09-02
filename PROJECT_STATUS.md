@@ -1,5 +1,13 @@
 # PROJECT_STATUS
 
+## 2026-09-02 DEV-A Release & Operational Readiness (offline)
+
+- Voice Agent local suite **401 passed** (campaign start baseline was 357). WorkerSessionRegistry is on the production job path; Qwen cancelled `response.id` suppression is a bounded window (4096); static `WorkerStartupSettings` fail-fast for `stage`; optional loopback ops HTTP (`/livez` `/readyz` `/status`); process-lifetime `RuntimeMetrics`; Python `release_gate` (`fast` / `full`).
+- Ops HTTP default bind is `127.0.0.1` and default **disabled**. Liveness is not LiveKit Agents `GET /` (that SDK route is 503 on LiveKit disconnect).
+- Docs: `docs/realtime/operations-runbook.md`, `docs/realtime/release-checklist.md`, `docs/realtime/release-operational-readiness-results.md`, `docs/realtime/release-readiness-baseline.md`.
+- **Real PSTN calls: 0.** Status remains **NEEDS_LIVEKIT_PROVISIONING**. Offline gate must not be read as `LIVE_SIP_E2E_PASS`.
+- No Control Plane / Call Insights implementation in this campaign.
+
 ## 2026-09-02 DEV-A Voice UX Runtime (synthetic)
 
 - Voice Agent local suite **357 passed**. ConversationDirector owns greeting-once, silence prompts (max 2), idle (180s), max session (1800s), tool bridge, and `FAIL_SESSION_ON_PROVIDER_DISCONNECT`.

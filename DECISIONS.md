@@ -87,6 +87,19 @@
 | 配置归属 | `VOICE_UX_*` 为 Runtime 默认；租户级字段需 B 契约，本轮不改 Control Plane |
 | 延迟数字 | 与 hardening 相同：只标记 SYNTHETIC |
 
+## 2026-09-02 Release & operational readiness (offline)
+
+| 决策 | 内容 |
+|---|---|
+| Offline vs live | `DEV_A_RELEASE_READY_OFFLINE` 只表示 Worker 离线可启动、可验收、可排障；真实电话仍是 **NEEDS_LIVEKIT_PROVISIONING** |
+| 静态配置 vs 探活 | Startup 只校验环境变量形态；Platform/Qwen 在线与否不作为启动强依赖。不付费探测 Qwen。A 不为探活改 B（`DEPENDENCY_PROBE_UNAVAILABLE`） |
+| Liveness | `/livez` = 进程/事件循环仍在；外部短暂失败不得直接 livez=false |
+| Readiness | `/readyz` = 是否接新通话；STARTING/DRAINING/STOPPED 为 false；DEGRADED ≠ DEAD |
+| Ops HTTP | 默认关闭；默认 `127.0.0.1`；`0.0.0.0` 强制回环。不是公网 API |
+| Drain | Runtime `VOICE_WORKER_DRAIN_TIMEOUT_SECONDS` 是会话 cleanup；不替代 livekit-agents `AgentServer.drain`（默认 3600s） |
+| Metrics | 进程生命周期、Worker 级、延迟样本有上限；禁止用 tenant/call/phone 做永久 label |
+| 崩溃 | 优雅关闭尽量 finish/unregister；硬杀进程不承诺 exactly-once finish |
+
 ## 2026-08-31 Monorepo 合仓与两人并行分支
 
 | 决策 | 内容 |

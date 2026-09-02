@@ -14,6 +14,7 @@
 - [x] lookup 鉴权归控制面（`X-Phone-Lookup-Token`；空 token 401）
 - [x] DEV-A Runtime hardening campaign (synthetic concurrency / races / replay / soak; 2026-09-02). Real SIP still **NEEDS_LIVEKIT_PROVISIONING**
 - [x] DEV-A Voice UX Runtime campaign (greeting-once / silence / idle / duration / endpointing / barge-in UX / tool bridge / synthetic soak+fuzz; 2026-09-02). Real SIP still **NEEDS_LIVEKIT_PROVISIONING**
+- [x] DEV-A Release & Operational Readiness (offline 2026-09-02): registry wired, bounded suppression ids, startup validation, loopback ops, metrics, release gate, runbook. Real SIP still **NEEDS_LIVEKIT_PROVISIONING**
 - [ ] DEV-B optional: per-tenant Voice UX timer fields (see `docs/realtime/contract-change-request-voice-ux-timers.md`; A did not implement)
 - [ ] DEV-A Live SIP Stage E2E → `LIVE_SIP_E2E_PASS`（2026-09-01 停在 **NEEDS_LIVEKIT_PROVISIONING**：无凭据、无 worker、trunk/DID/dispatch 未在本机可见）
 - [ ] Integrator 验收后再合 `main`

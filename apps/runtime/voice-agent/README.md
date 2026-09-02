@@ -117,7 +117,19 @@ pipeline fallback 的行为和延迟不能代表 Qwen Realtime 默认链路。
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
 .\.venv\Scripts\python.exe -m ruff check --no-cache src tests
+.\.venv\Scripts\python.exe -m yino_voice_agent.release_gate --mode full
 .\.venv\Scripts\python.exe -m yino_voice_agent.server --help
 ```
+
+Linux 等价：
+
+```bash
+python -m pytest -q -p no:cacheprovider
+python -m ruff check --no-cache src tests
+python -m yino_voice_agent.release_gate --mode full
+python -m yino_voice_agent.server --help
+```
+
+可选 loopback 运维口（默认关闭，绑定 `127.0.0.1`）：`VOICE_OPS_ENABLED=true` 后 `GET /livez` `/readyz` `/status`。完整安装/启动/排障见 `docs/realtime/operations-runbook.md`。离线验收清单见 `docs/realtime/release-checklist.md`。
 
 电话入站 SIP 适配器已接到 Runtime（LiveKit SIP participant → Platform lookup → 现有 AgentSession）。Lookup 必须带 `X-Phone-Lookup-Token`。真实 PSTN / 买号 / 改 trunk 仍需单独授权；见 `docs/realtime/2026-09-01-sip-inbound-stage-runbook.md`。
