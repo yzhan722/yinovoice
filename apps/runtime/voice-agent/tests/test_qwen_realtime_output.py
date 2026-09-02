@@ -122,6 +122,13 @@ async def connected_session(
     session = model.session()
     await asyncio.wait_for(connector.connected.wait(), timeout=0.2)
     await socket.wait_until_client_event("session.update")
+    await socket.push({"type": "session.updated", "session": {}})
+
+    async def _session_ready() -> None:
+        while not session._session_accepts_audio:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(_session_ready(), timeout=0.2)
     return model, session
 
 
@@ -221,8 +228,9 @@ async def test_session_updates_instructions_and_rejects_unsupported_state() -> N
     await asyncio.sleep(0)
     assert socket.sent[-1]["session"]["instructions"] == "只回答必要信息。"
 
-    with pytest.raises(llm.RealtimeError, match="chat context"):
-        await session.update_chat_ctx(llm.ChatContext.empty())
+    empty_ctx = llm.ChatContext.empty()
+    await session.update_chat_ctx(empty_ctx)
+    assert session.chat_ctx is not None
     await session.update_tools([])
     with pytest.raises(llm.RealtimeError, match="tools"):
         await session.update_tools([object()])  # type: ignore[list-item]

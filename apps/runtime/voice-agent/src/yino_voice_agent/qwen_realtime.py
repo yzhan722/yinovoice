@@ -527,6 +527,10 @@ class QwenRealtimeSession(llm.RealtimeSession):
     def commit_audio(self) -> None:
         if self._closed:
             return
+        if not self._turn_detection_disabled:
+            # Server VAD owns commit; client commit_audio is a local flush only.
+            self._release_input_audio(send_complete_chunks=False)
+            return
         self._release_input_audio(send_complete_chunks=True)
         if (
             self._turn_detection_disabled

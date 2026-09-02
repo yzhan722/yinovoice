@@ -79,7 +79,7 @@ def build_audio_clear() -> dict[str, object]:
 
 
 def build_response_create() -> dict[str, object]:
-    # Match DashScope push-to-talk examples: bare create, session modalities apply.
+    # Session.update already sets modalities; create stays a turn trigger.
     return {"type": "response.create"}
 
 

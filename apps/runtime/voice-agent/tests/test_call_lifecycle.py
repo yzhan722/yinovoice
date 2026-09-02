@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from uuid import UUID, uuid4
 
@@ -135,3 +136,192 @@ async def test_start_failure_does_not_raise_and_finish_retries_once() -> None:
 
     assert attempts["start"] == 2
     assert client.record_id == record_id
+
+
+def _finish_counting_client() -> tuple[
+    CallLifecycleClient, dict[str, object], httpx.AsyncClient
+]:
+    record_id = uuid4()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("/start"):
+            return httpx.Response(201, json={"id": str(record_id)})
+        if request.url.path.endswith("/finish"):
+            return httpx.Response(
+                200,
+                json={"id": str(record_id), "status": "completed"},
+            )
+        return httpx.Response(200, json={"id": str(record_id)})
+
+    transport = httpx.MockTransport(handler)
+    http = httpx.AsyncClient(transport=transport, base_url="http://platform.test")
+    client = CallLifecycleClient(
+        http,
+        UUID("00000000-0000-0000-0000-000000000001"),
+    )
+    return client, {"record_id": record_id, "seen": seen}, http
+
+
+@pytest.mark.asyncio
+async def test_concurrent_finish_callers_send_one_http() -> None:
+    client, state, http = _finish_counting_client()
+    seen: list[httpx.Request] = state["seen"]  # type: ignore[assignment]
+    async with http:
+        await client.start_from_dispatch(_metadata(), "sip-room-1")
+        await asyncio.gather(
+            client.finish(status="completed", ended_reason="user_hangup"),
+            client.finish(status="completed", ended_reason="completed"),
+            client.finish(status="failed", ended_reason="agent_error"),
+        )
+
+    finish_requests = [item for item in seen if item.url.path.endswith("/finish")]
+    assert len(finish_requests) == 1
+    body = json.loads(finish_requests[0].content)
+    assert body["status"] == "failed"
+    assert body["ended_reason"] == "agent_error"
+
+
+@pytest.mark.asyncio
+async def test_second_finish_does_not_overwrite_committed_agent_error() -> None:
+    client, state, http = _finish_counting_client()
+    seen: list[httpx.Request] = state["seen"]  # type: ignore[assignment]
+    async with http:
+        await client.start_from_dispatch(_metadata(), "sip-room-1")
+        await client.finish(status="failed", ended_reason="agent_error")
+        await client.finish(status="completed", ended_reason="user_hangup")
+
+    finish_requests = [item for item in seen if item.url.path.endswith("/finish")]
+    assert len(finish_requests) == 1
+    body = json.loads(finish_requests[0].content)
+    assert body["status"] == "failed"
+    assert body["ended_reason"] == "agent_error"
+
+
+_FINISH_INTERLEAVINGS: tuple[tuple[tuple[str, str], ...], ...] = (
+    (
+        ("completed", "user_hangup"),
+        ("completed", "completed"),
+        ("failed", "agent_error"),
+    ),
+    (
+        ("completed", "completed"),
+        ("failed", "agent_error"),
+        ("completed", "user_hangup"),
+    ),
+    (
+        ("failed", "agent_error"),
+        ("completed", "user_hangup"),
+        ("completed", "completed"),
+    ),
+    (
+        ("completed", "user_hangup"),
+        ("failed", "agent_error"),
+        ("completed", "completed"),
+    ),
+)
+
+
+class _GatedFinishTransport(httpx.AsyncBaseTransport):
+    def __init__(self, *, fail_finish: bool = False) -> None:
+        self.record_id = uuid4()
+        self.finish_started = asyncio.Event()
+        self.release_finish = asyncio.Event()
+        self.finish_requests: list[httpx.Request] = []
+        self.fail_finish = fail_finish
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/start"):
+            return httpx.Response(201, json={"id": str(self.record_id)})
+        if path.endswith("/finish"):
+            self.finish_requests.append(request)
+            self.finish_started.set()
+            await self.release_finish.wait()
+            if self.fail_finish:
+                return httpx.Response(500, json={"detail": "down"})
+            return httpx.Response(
+                200,
+                json={"id": str(self.record_id), "status": "completed"},
+            )
+        return httpx.Response(200, json={"id": str(self.record_id)})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcomes", _FINISH_INTERLEAVINGS)
+async def test_interleaved_finish_outcomes_send_one_http(
+    outcomes: tuple[tuple[str, str], ...],
+) -> None:
+    client, state, http = _finish_counting_client()
+    seen: list[httpx.Request] = state["seen"]  # type: ignore[assignment]
+    async with http:
+        await client.start_from_dispatch(_metadata(), "sip-room-1")
+        await asyncio.gather(
+            *[
+                client.finish(status=status, ended_reason=reason)
+                for status, reason in outcomes
+            ]
+        )
+
+    finish_requests = [item for item in seen if item.url.path.endswith("/finish")]
+    assert len(finish_requests) == 1
+    body = json.loads(finish_requests[0].content)
+    assert body["status"] == "failed"
+    assert body["ended_reason"] == "agent_error"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_finish_caller_does_not_deadlock_or_double_http() -> None:
+    transport = _GatedFinishTransport()
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://platform.test",
+    ) as http:
+        client = CallLifecycleClient(
+            http, UUID("00000000-0000-0000-0000-000000000001")
+        )
+        await client.start_from_dispatch(_metadata(), "sip-room-1")
+        blocked = asyncio.create_task(
+            client.finish(status="completed", ended_reason="user_hangup")
+        )
+        await transport.finish_started.wait()
+        blocked.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await blocked
+        transport.release_finish.set()
+        await client.finish(status="failed", ended_reason="agent_error")
+
+    assert len(transport.finish_requests) == 1
+    assert client._finish_committed is True
+    assert client._finish_http_started is True
+
+
+@pytest.mark.asyncio
+async def test_finish_http_failure_does_not_retry_on_second_caller() -> None:
+    record_id = uuid4()
+    finish_count = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/start"):
+            return httpx.Response(201, json={"id": str(record_id)})
+        if request.url.path.endswith("/finish"):
+            finish_count["n"] += 1
+            return httpx.Response(500, json={"detail": "down"})
+        return httpx.Response(200, json={"id": str(record_id)})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://platform.test",
+    ) as http:
+        client = CallLifecycleClient(
+            http, UUID("00000000-0000-0000-0000-000000000001")
+        )
+        await client.start_from_dispatch(_metadata(), "sip-room-1")
+        await client.finish(status="completed", ended_reason="user_hangup")
+        await client.finish(status="failed", ended_reason="agent_error")
+
+    assert finish_count["n"] == 1
+    assert client._finish_committed is True
+

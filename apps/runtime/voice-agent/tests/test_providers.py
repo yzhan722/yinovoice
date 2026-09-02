@@ -239,7 +239,7 @@ runtime = create_console_runtime(
     vad_loader=lambda: object(),
 )
 assert bundle.mode == "qwen-realtime"
-assert runtime.vad is not None
+assert runtime.vad is None
 
 forbidden = (
     "livekit.plugins.openai",
