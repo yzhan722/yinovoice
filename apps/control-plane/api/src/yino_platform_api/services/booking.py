@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
+from ..clock import utc_now
 from ..domain.appointment import Appointment
 from ..repositories.appointments import AppointmentRepository
 from ..repositories.scheduling import SchedulingRepository
@@ -82,6 +83,6 @@ async def ensure_slot_available(
         occupying=occupying,
         slot_start_utc=slot_start,
         slot_end_utc=slot_end,
-        now=now or datetime.now(UTC),
+        now=now or utc_now(),
     ):
         raise SlotUnavailableError("slot not available")

@@ -62,9 +62,9 @@ exports-private/
 # Local runtime data
 data/
 storage/
+!**/src/storage/
+!**/src/storage/**
 uploads/
-# `storage/` above is for runtime data; the Call Insights source module lives under src/storage.
-!apps/call-insights/src/storage/
 
 # Deploy local env overlays (never commit real values)
 deploy/config/*.env

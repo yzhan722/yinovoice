@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+from ..clock import NowProvider, utc_now
 from ..domain.appointment import Appointment
 from ..domain.callback_task import CallbackTask
 from ..domain.tool_invocation import (
@@ -57,6 +58,7 @@ class ToolExecutionService:
         scheduling: SchedulingRepository,
         call_records: CallRecordRepository,
         notifications: NotificationService | None = None,
+        now_provider: NowProvider = utc_now,
     ) -> None:
         self._invocations = invocations
         self._appointments = appointments
@@ -64,6 +66,7 @@ class ToolExecutionService:
         self._scheduling = scheduling
         self._call_records = call_records
         self._notifications = notifications
+        self._now_provider = now_provider
 
     async def execute(
         self, tenant_id: UUID, payload: ToolInvocationCreate
@@ -186,7 +189,7 @@ class ToolExecutionService:
             status=status,  # type: ignore[arg-type]
             result=result,
             idempotency_key=key,
-            created_at=datetime.now(UTC),
+            created_at=self._now_provider(),
         )
         return await self._invocations.create(item)
 
@@ -226,7 +229,7 @@ class ToolExecutionService:
             ),
             date_from=date_from,
             date_to=date_to,
-            now=datetime.now(UTC),
+            now=self._now_provider(),
         )
         return "ok", {
             "message": f"found {len(slots)} available slots",
@@ -260,10 +263,11 @@ class ToolExecutionService:
                 slot_start=slot_start,
                 slot_end=slot_end,
                 service_offering_id=offering_id,
+                now=self._now_provider(),
             )
         except SlotUnavailableError as error:
             return "error", {"message": str(error)}
-        stamp = datetime.now(UTC)
+        stamp = self._now_provider()
         created = await self._appointments.create(
             Appointment(
                 id=uuid4(),
@@ -302,7 +306,7 @@ class ToolExecutionService:
         phone = _str_arg(args.get("phone") or args.get("caller_phone"), "待确认电话")
         reason = _str_arg(args.get("reason"), "客户要求回电跟进")
         summary = _str_arg(args.get("summary"), "")
-        stamp = datetime.now(UTC)
+        stamp = self._now_provider()
         created = await self._callbacks.create(
             CallbackTask(
                 id=uuid4(),
