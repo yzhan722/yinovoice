@@ -62,6 +62,8 @@ exports-private/
 # Local runtime data
 data/
 storage/
+!**/src/storage/
+!**/src/storage/**
 uploads/
 
 # Deploy local env overlays (never commit real values)

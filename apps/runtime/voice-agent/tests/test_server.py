@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import UUID
 
+import httpx
 import pytest
 
 from yino_voice_agent.config import VoiceSettings
@@ -467,6 +468,245 @@ async def test_dispatched_session_finishes_after_close_not_at_start() -> None:
         status="completed",
         ended_reason="user_hangup",
     )
+
+
+def _pipeline_settings() -> VoiceSettings:
+    return VoiceSettings.from_env(
+        {
+            "VOICE_PROVIDER_MODE": "pipeline",
+            "DASHSCOPE_API_KEY": "dashscope-test-key",
+            "DASHSCOPE_WEBSOCKET_URL": (
+                "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
+            ),
+            "OPENAI_API_KEY": "openai-test-key",
+        }
+    )
+
+
+class _ShutdownContext:
+    def __init__(self, room_name: str, metadata: str) -> None:
+        self.room = SimpleNamespace(name=room_name)
+        self.job = SimpleNamespace(metadata=metadata)
+        self.shutdown_callbacks: list[object] = []
+
+    def add_shutdown_callback(self, handler: object) -> None:
+        self.shutdown_callbacks.append(handler)
+
+
+def _counting_transport(
+    record_id: UUID,
+) -> tuple[httpx.MockTransport, dict[str, object]]:
+    finish_bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/start"):
+            return httpx.Response(201, json={"id": str(record_id)})
+        if request.url.path.endswith("/finish"):
+            finish_bodies.append(json.loads(request.content))
+            return httpx.Response(
+                200,
+                json={"id": str(record_id), "status": "completed"},
+            )
+        return httpx.Response(200, json={"id": str(record_id)})
+
+    return httpx.MockTransport(handler), {"finish_bodies": finish_bodies}
+
+
+async def _wait_for_close_handler(
+    session: _ClosableSession, task: asyncio.Task[None]
+) -> None:
+    for _ in range(50):
+        if session._close_handler is not None or task.done():
+            break
+        await asyncio.sleep(0)
+    assert session._close_handler is not None
+    assert not task.done()
+
+
+async def _run_dispatched_with_http(
+    *,
+    session: _ClosableSession,
+    context: object,
+    transport: httpx.MockTransport,
+) -> None:
+    settings = _pipeline_settings()
+    runtime = runtime_customer_service()
+    providers = ProviderBundle(
+        mode="pipeline", stt=object(), llm=object(), tts=object()
+    )
+    http_client = httpx.AsyncClient(
+        transport=transport,
+        base_url="http://platform.test",
+    )
+    with (
+        patch.object(VoiceSettings, "from_env", return_value=settings),
+        patch(
+            "yino_voice_agent.server.httpx.AsyncClient",
+            return_value=http_client,
+        ),
+        patch.object(PlatformConfigClient, "get", AsyncMock(return_value=runtime)),
+        patch("yino_voice_agent.server.build_providers", Mock(return_value=providers)),
+        patch("yino_voice_agent.server._load_pipeline_vad", return_value=object()),
+        patch("yino_voice_agent.server.create_session", return_value=session),
+        patch(
+            "yino_voice_agent.server.create_customer_service",
+            Mock(return_value=object()),
+        ),
+    ):
+        await local_voice_agent(context)
+
+
+@pytest.mark.asyncio
+async def test_normal_user_hangup_sends_one_finish_http() -> None:
+    record_id = UUID("00000000-0000-0000-0000-000000000301")
+    transport, state = _counting_transport(record_id)
+    session = _ClosableSession()
+    runtime = runtime_customer_service()
+    context = _ShutdownContext(
+        "sip-finish-normal",
+        json.dumps(
+            {
+                "customer_service_id": str(runtime.id),
+                "tenant_id": str(runtime.tenant_id),
+                "config_version": runtime.version,
+                "channel": "sip",
+            }
+        ),
+    )
+    task = asyncio.create_task(
+        _run_dispatched_with_http(session=session, context=context, transport=transport)
+    )
+    await _wait_for_close_handler(session, task)
+    session.emit_close(reason_name="PARTICIPANT_DISCONNECTED")
+    await asyncio.wait_for(task, timeout=1)
+    bodies: list[dict[str, object]] = state["finish_bodies"]  # type: ignore[assignment]
+    assert len(bodies) == 1
+    assert bodies[0]["status"] == "completed"
+    assert bodies[0]["ended_reason"] == "user_hangup"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_close_sends_one_finish_http() -> None:
+    record_id = UUID("00000000-0000-0000-0000-000000000302")
+    transport, state = _counting_transport(record_id)
+    session = _ClosableSession()
+    runtime = runtime_customer_service()
+    context = _ShutdownContext(
+        "sip-finish-dup-close",
+        json.dumps(
+            {
+                "customer_service_id": str(runtime.id),
+                "tenant_id": str(runtime.tenant_id),
+                "config_version": runtime.version,
+                "channel": "sip",
+            }
+        ),
+    )
+    task = asyncio.create_task(
+        _run_dispatched_with_http(session=session, context=context, transport=transport)
+    )
+    await _wait_for_close_handler(session, task)
+    session.emit_close(reason_name="PARTICIPANT_DISCONNECTED")
+    session.emit_close(reason_name="USER_INITIATED")
+    await asyncio.wait_for(task, timeout=1)
+    bodies: list[dict[str, object]] = state["finish_bodies"]  # type: ignore[assignment]
+    assert len(bodies) == 1
+    assert bodies[0]["status"] == "completed"
+    assert bodies[0]["ended_reason"] == "user_hangup"
+
+
+@pytest.mark.asyncio
+async def test_close_and_shutdown_race_sends_one_finish_http() -> None:
+    record_id = UUID("00000000-0000-0000-0000-000000000303")
+    transport, state = _counting_transport(record_id)
+    session = _ClosableSession()
+    runtime = runtime_customer_service()
+    context = _ShutdownContext(
+        "sip-finish-race",
+        json.dumps(
+            {
+                "customer_service_id": str(runtime.id),
+                "tenant_id": str(runtime.tenant_id),
+                "config_version": runtime.version,
+                "channel": "sip",
+            }
+        ),
+    )
+    task = asyncio.create_task(
+        _run_dispatched_with_http(session=session, context=context, transport=transport)
+    )
+    await _wait_for_close_handler(session, task)
+    assert context.shutdown_callbacks
+    session.emit_close(reason_name="PARTICIPANT_DISCONNECTED")
+    await asyncio.gather(
+        *(callback("") for callback in context.shutdown_callbacks)
+    )
+    await asyncio.wait_for(task, timeout=1)
+    bodies: list[dict[str, object]] = state["finish_bodies"]  # type: ignore[assignment]
+    assert len(bodies) == 1
+    assert bodies[0]["status"] == "completed"
+    assert bodies[0]["ended_reason"] == "user_hangup"
+
+
+@pytest.mark.asyncio
+async def test_agent_exception_sends_one_failed_finish_http() -> None:
+    record_id = UUID("00000000-0000-0000-0000-000000000304")
+    transport, state = _counting_transport(record_id)
+    session = _ClosableSession()
+    session.start = AsyncMock(side_effect=RuntimeError("agent exploded"))
+    runtime = runtime_customer_service()
+    context = _ShutdownContext(
+        "sip-finish-error",
+        json.dumps(
+            {
+                "customer_service_id": str(runtime.id),
+                "tenant_id": str(runtime.tenant_id),
+                "config_version": runtime.version,
+                "channel": "sip",
+            }
+        ),
+    )
+    with pytest.raises(RuntimeError, match="agent exploded"):
+        await _run_dispatched_with_http(
+            session=session, context=context, transport=transport
+        )
+    bodies: list[dict[str, object]] = state["finish_bodies"]  # type: ignore[assignment]
+    assert len(bodies) == 1
+    assert bodies[0]["status"] == "failed"
+    assert bodies[0]["ended_reason"] == "agent_error"
+
+
+@pytest.mark.asyncio
+async def test_exception_then_close_keeps_agent_error_and_one_http() -> None:
+    record_id = UUID("00000000-0000-0000-0000-000000000305")
+    transport, state = _counting_transport(record_id)
+    session = _ClosableSession()
+
+    async def start_emits_close_then_fails(**_kwargs: object) -> None:
+        session.emit_close(reason_name="PARTICIPANT_DISCONNECTED")
+        raise RuntimeError("agent exploded")
+
+    session.start = start_emits_close_then_fails
+    runtime = runtime_customer_service()
+    context = _ShutdownContext(
+        "sip-finish-error-close",
+        json.dumps(
+            {
+                "customer_service_id": str(runtime.id),
+                "tenant_id": str(runtime.tenant_id),
+                "config_version": runtime.version,
+                "channel": "sip",
+            }
+        ),
+    )
+    with pytest.raises(RuntimeError, match="agent exploded"):
+        await _run_dispatched_with_http(
+            session=session, context=context, transport=transport
+        )
+    bodies: list[dict[str, object]] = state["finish_bodies"]  # type: ignore[assignment]
+    assert len(bodies) == 1
+    assert bodies[0]["status"] == "failed"
+    assert bodies[0]["ended_reason"] == "agent_error"
 
 
 @pytest.mark.asyncio

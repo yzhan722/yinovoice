@@ -1,8 +1,8 @@
-from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
+from ..clock import NowProvider, utc_now
 from ..dependencies import TenantId
 from ..domain.appointment import (
     Appointment,
@@ -20,6 +20,8 @@ def create_router(
     appointments: AppointmentRepository,
     customer_services: CustomerServiceRepository,
     scheduling: SchedulingRepository,
+    *,
+    now_provider: NowProvider = utc_now,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/appointments")
 
@@ -65,6 +67,7 @@ def create_router(
         instance_id = await _resolve_instance(
             request.voice_agent_instance_id, tenant_id
         )
+        now = now_provider()
         try:
             await ensure_slot_available(
                 appointments=appointments,
@@ -74,13 +77,13 @@ def create_router(
                 slot_start=request.slot_start,
                 slot_end=request.slot_end,
                 service_offering_id=request.service_offering_id,
+                now=now,
             )
         except SlotUnavailableError as error:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(error),
             ) from error
-        now = datetime.now(UTC)
         return await appointments.create(
             Appointment(
                 id=uuid4(),
@@ -149,6 +152,7 @@ def create_router(
                 slot_end=updated.slot_end,
                 service_offering_id=updated.service_offering_id,
                 exclude_id=updated.id,
+                now=now_provider(),
             )
         except SlotUnavailableError as error:
             raise HTTPException(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
-from urllib.parse import unquote, quote
+from urllib.parse import quote, unquote
 
 ToolName = Literal["check_availability", "create_appointment", "create_callback"]
 
@@ -11,6 +11,8 @@ _ALLOWED: set[str] = {
     "create_appointment",
     "create_callback",
 }
+ALLOWED_TOOL_NAMES: frozenset[str] = frozenset(_ALLOWED)
+IDEMPOTENT_TOOL_NAMES: frozenset[str] = frozenset({"check_availability"})
 _MARKER_PREFIX = "[[tool:"
 _MARKER_SUFFIX = "]]"
 

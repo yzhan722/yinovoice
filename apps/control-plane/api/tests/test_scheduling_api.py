@@ -1,4 +1,5 @@
-from datetime import date
+from collections.abc import Callable
+from datetime import date, datetime
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -15,7 +16,10 @@ from yino_platform_api.repositories.phone_numbers import InMemoryPhoneNumberRepo
 from yino_platform_api.repositories.scheduling import InMemorySchedulingRepository
 
 
-def _client(ids) -> tuple[TestClient, InMemoryAppointmentRepository]:
+def _client(
+    ids,
+    now_provider: Callable[[], datetime],
+) -> tuple[TestClient, InMemoryAppointmentRepository]:
     instance = CustomerServiceInstance.demo(
         instance_id=ids.instance_id,
         tenant_id=ids.tenant_id,
@@ -29,6 +33,7 @@ def _client(ids) -> tuple[TestClient, InMemoryAppointmentRepository]:
             callback_task_repository=InMemoryCallbackTaskRepository(),
             phone_number_repository=InMemoryPhoneNumberRepository(),
             scheduling_repository=InMemorySchedulingRepository(),
+            now_provider=now_provider,
         )
     )
     return client, appointments
@@ -83,8 +88,11 @@ def _seed_schedule(client: TestClient, ids) -> str:
     return offering_id
 
 
-def test_availability_skips_lunch_and_occupied_slot(ids) -> None:
-    client, _ = _client(ids)
+def test_availability_skips_lunch_and_occupied_slot(
+    ids,
+    fixed_now_provider: Callable[[], datetime],
+) -> None:
+    client, _ = _client(ids, fixed_now_provider)
     offering_id = _seed_schedule(client, ids)
     headers = _headers(ids.tenant_id)
     day = date(2026, 9, 1)  # Tuesday
@@ -169,8 +177,11 @@ def test_availability_skips_lunch_and_occupied_slot(ids) -> None:
     assert morning["slot_start_utc"] in restored_starts
 
 
-def test_modify_conflict_and_cancelled_is_terminal(ids) -> None:
-    client, _ = _client(ids)
+def test_modify_conflict_and_cancelled_is_terminal(
+    ids,
+    fixed_now_provider: Callable[[], datetime],
+) -> None:
+    client, _ = _client(ids, fixed_now_provider)
     offering_id = _seed_schedule(client, ids)
     headers = _headers(ids.tenant_id)
     day = date(2026, 9, 1)
@@ -249,8 +260,11 @@ def test_modify_conflict_and_cancelled_is_terminal(ids) -> None:
     assert blocked.status_code == 409
 
 
-def test_closed_exception_hides_day(ids) -> None:
-    client, _ = _client(ids)
+def test_closed_exception_hides_day(
+    ids,
+    fixed_now_provider: Callable[[], datetime],
+) -> None:
+    client, _ = _client(ids, fixed_now_provider)
     offering_id = _seed_schedule(client, ids)
     headers = _headers(ids.tenant_id)
     created = client.post(
@@ -278,8 +292,11 @@ def test_closed_exception_hides_day(ids) -> None:
     assert listed.json()["total"] == 0
 
 
-def test_wrong_duration_rejected_when_offering_bound(ids) -> None:
-    client, _ = _client(ids)
+def test_wrong_duration_rejected_when_offering_bound(
+    ids,
+    fixed_now_provider: Callable[[], datetime],
+) -> None:
+    client, _ = _client(ids, fixed_now_provider)
     offering_id = _seed_schedule(client, ids)
     created = client.post(
         "/api/v1/appointments",

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID, uuid4
 
+from ..clock import NowProvider, utc_now
 from ..domain.call_record import (
     CallRecord,
     CallSessionFinish,
@@ -53,6 +54,7 @@ class CallLifecycleService:
         notifications: NotificationService | None = None,
         egress: RecordingEgressService | None = None,
         insights_dispatch: InsightsDispatchRepository | None = None,
+        now_provider: NowProvider = utc_now,
     ) -> None:
         self._call_records = call_records
         self._customer_services = customer_services
@@ -63,6 +65,7 @@ class CallLifecycleService:
         self._notifications = notifications
         self._egress = egress
         self._insights_dispatch = insights_dispatch
+        self._now_provider = now_provider
 
     async def start(
         self,
@@ -91,11 +94,12 @@ class CallLifecycleService:
         if existing_room is not None:
             return existing_room, False
 
-        started_at = request.started_at or datetime.now(UTC)
+        now = self._now_provider()
+        started_at = request.started_at or now
         record = CallRecord(
             id=uuid4(),
             tenant_id=tenant_id,
-            created_at=datetime.now(UTC),
+            created_at=now,
             customer_service_id=request.customer_service_id,
             room_name=request.room_name,
             status="in_progress",
@@ -167,7 +171,7 @@ class CallLifecycleService:
         if record.status != "in_progress":
             return record
 
-        ended_at = request.ended_at or datetime.now(UTC)
+        ended_at = request.ended_at or self._now_provider()
         if ended_at < record.started_at:
             raise CallSessionConflict("ended_at must not be before started_at")
 

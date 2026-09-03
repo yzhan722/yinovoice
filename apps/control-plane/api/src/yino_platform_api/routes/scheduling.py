@@ -1,8 +1,9 @@
-from datetime import UTC, date, datetime
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Response, status
 
+from ..clock import NowProvider, utc_now
 from ..dependencies import TenantId
 from ..domain.scheduling import (
     AvailabilityPage,
@@ -32,6 +33,8 @@ def create_router(
     scheduling: SchedulingRepository,
     customer_services: CustomerServiceRepository,
     appointments: AppointmentRepository,
+    *,
+    now_provider: NowProvider = utc_now,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
 
@@ -215,7 +218,7 @@ def create_router(
             occupying=occupying,
             date_from=date_from,
             date_to=date_to,
-            now=datetime.now(UTC),
+            now=now_provider(),
         )
         return AvailabilityPage(items=items, total=len(items))
 
