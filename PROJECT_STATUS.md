@@ -1,5 +1,14 @@
 # PROJECT_STATUS
 
+## 2026-09-03 Integrator：A / B 合入 main 与需求对照验收
+
+- `main` 已包含 DEV-A `feat/a-runtime-finish-once`（7 commits）与 DEV-B PR #2（segment 1）。CI 五个 job 首次全绿；DEV-B 尚有 B4 callback-lifecycle 第二个 PR 待提交。
+- 修复：`create_appointment` Tool 按 `service` 名称绑定服务项目后再校验时段（此前只查重叠，营业时间/时长不生效）；排期页可预约预览默认改为滚动 7 天（原硬编码 2026-09-01..07）；call-insights `sqlite-store.ts` 被 `.gitignore` 误伤、调度测试硬编码过去日期、safety 测试 Windows 专属假 npm 等 CI 红灯已处理。
+- 落地此前只在 DEV-A worktree 未提交的控制面功能：`POST /customer-services/industry-demos`（7 行业演示，`app.py` 已接线）、实例卡「开始通话」、实时语音页实例/音色切换；模板遗留成就/庆祝页改为跳转工作台。
+- 本地验收（内存仓库）：API 180 passed / voice-agent 401 passed + `release_gate --mode full` PASS / Web 93 passed + typecheck + build / call-insights 339 passed。浏览器走查：登录、实例新建/导入、知识→写入 Prompt→发布→回滚、排期与档期、电话号码、通话记录抽屉、预约/回拨、Dashboard KPI 均正常；入站会话 start/messages/finish 与挂断抽取、Tool 幂等、租户隔离经脚本验证。
+- **未覆盖**：真实 LiveKit / Qwen 语音通话（本机无凭据）；PostgreSQL 模式（本机与 CI 均无数据库，16 个 Postgres 用例持续被跳过，Alembic head `20260901_0012` 仅静态核对）；SMTP / S3 / Call Insights 跨服务实链。
+- 已知体验问题（未改）：时间多处以 UTC 或原始 ISO 字串展示、营业时间在排期页不可编辑（固定周一至周五 09–12 / 13–17）、实时语音连接失败提示文案指向 Platform API 而非 LiveKit、工作台页脚仍显示「路径 A（通话接入位已预留）」。
+
 ## 2026-09-02 DEV-A Release & Operational Readiness (offline)
 
 - Voice Agent local suite **401 passed** (campaign start baseline was 357). WorkerSessionRegistry is on the production job path; Qwen cancelled `response.id` suppression is a bounded window (4096); static `WorkerStartupSettings` fail-fast for `stage`; optional loopback ops HTTP (`/livez` `/readyz` `/status`); process-lifetime `RuntimeMetrics`; Python `release_gate` (`fast` / `full`).
