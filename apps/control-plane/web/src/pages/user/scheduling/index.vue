@@ -99,8 +99,17 @@ const profile = ref({
 });
 const offering = ref({ name: '洁牙', durationMinutes: 30 });
 const previewOfferingId = ref('');
-const dateFrom = ref('2026-09-01');
-const dateTo = ref('2026-09-07');
+
+function isoDate(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Default preview window: today through the next 6 days.
+const dateFrom = ref(isoDate(0));
+const dateTo = ref(isoDate(6));
 
 async function reload() {
   if (!instanceId.value) return;
