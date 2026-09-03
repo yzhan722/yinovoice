@@ -254,6 +254,15 @@ class ToolExecutionService:
             args.get("voice_agent_instance_id"), payload.voice_agent_instance_id
         )
         offering_id = _uuid_arg(args.get("service_offering_id"), None)
+        # The voice runtime only knows the spoken service name, never an
+        # offering UUID; bind it here so business hours, slot grid and
+        # duration are enforced instead of only the overlap check.
+        if offering_id is None and instance_id is not None and service.strip():
+            offering = await self._scheduling.find_offering_by_name(
+                tenant_id, instance_id, service.strip()
+            )
+            if offering is not None:
+                offering_id = offering.id
         try:
             await ensure_slot_available(
                 appointments=self._appointments,

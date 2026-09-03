@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from datetime import datetime
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -17,11 +19,14 @@ from yino_platform_api.repositories.tool_invocations import (
 )
 
 
-def _client(ids) -> TestClient:
+def _client(
+    ids, now_provider: Callable[[], datetime] | None = None
+) -> TestClient:
     instance = CustomerServiceInstance.demo(
         instance_id=ids.instance_id,
         tenant_id=ids.tenant_id,
     )
+    extra = {"now_provider": now_provider} if now_provider is not None else {}
     return TestClient(
         create_app(
             InMemoryCustomerServiceRepository([instance]),
@@ -31,6 +36,7 @@ def _client(ids) -> TestClient:
             phone_number_repository=InMemoryPhoneNumberRepository(),
             scheduling_repository=InMemorySchedulingRepository(),
             tool_invocation_repository=InMemoryToolInvocationRepository(),
+            **extra,
         )
     )
 
@@ -117,6 +123,101 @@ def test_create_appointment_missing_slot_is_http_200_error(ids) -> None:
     assert client.get(
         "/api/v1/appointments", headers=_headers(ids.tenant_id)
     ).json()["total"] == 0
+
+
+def _seed_schedule(client: TestClient, ids) -> str:
+    headers = _headers(ids.tenant_id)
+    offering = client.post(
+        "/api/v1/service-offerings",
+        headers=headers,
+        json={
+            "voice_agent_instance_id": str(ids.instance_id),
+            "name": "洁牙",
+            "duration_minutes": 30,
+            "buffer_minutes": 0,
+        },
+    )
+    assert offering.status_code == 201, offering.text
+    profile = client.put(
+        f"/api/v1/scheduling-profiles/{ids.instance_id}",
+        headers=headers,
+        json={
+            "timezone": "Australia/Melbourne",
+            "slot_interval_minutes": 30,
+            "minimum_notice_minutes": 0,
+            "booking_horizon_days": 365,
+        },
+    )
+    assert profile.status_code == 200, profile.text
+    hours = []
+    for weekday in range(5):
+        hours.append({"weekday": weekday, "start_local": "09:00", "end_local": "12:00"})
+        hours.append({"weekday": weekday, "start_local": "13:00", "end_local": "17:00"})
+    replaced = client.put(
+        f"/api/v1/business-hours?voice_agent_instance_id={ids.instance_id}",
+        headers=headers,
+        json=hours,
+    )
+    assert replaced.status_code == 200, replaced.text
+    return offering.json()["id"]
+
+
+def _tool_appointment(
+    client: TestClient, ids, key: str, slot_start: str, slot_end: str
+):
+    return client.post(
+        "/api/v1/tool-invocations",
+        headers=_headers(ids.tenant_id),
+        json={
+            "session_id": "sip-room-schedule",
+            "voice_agent_instance_id": str(ids.instance_id),
+            "tool_name": "create_appointment",
+            "arguments": {
+                "patient_name": "王芳",
+                "phone": "13800138000",
+                "service": "洁牙",
+                "slot_start": slot_start,
+                "slot_end": slot_end,
+            },
+            "idempotency_key": key,
+        },
+    )
+
+
+def test_create_appointment_tool_binds_offering_by_name_and_validates_slot(
+    ids, fixed_now_provider: Callable[[], datetime]
+) -> None:
+    # Clock is pinned to 2026-08-30 so the September slots below stay in the future.
+    client = _client(ids, fixed_now_provider)
+    offering_id = _seed_schedule(client, ids)
+    headers = _headers(ids.tenant_id)
+    # 2026-09-07 is a Monday; 23:00Z on the 6th is 09:00 Melbourne (AEST).
+    monday_0900 = "2026-09-06T23:00:00+00:00"
+    outside_hours = _tool_appointment(
+        client,
+        ids,
+        "k-outside",
+        "2026-09-06T17:00:00+00:00",  # 03:00 Melbourne
+        "2026-09-06T17:30:00+00:00",
+    )
+    assert outside_hours.status_code == 200, outside_hours.text
+    assert outside_hours.json()["status"] == "error"
+
+    wrong_duration = _tool_appointment(
+        client, ids, "k-duration", monday_0900, "2026-09-06T23:10:00+00:00"
+    )
+    assert wrong_duration.status_code == 200, wrong_duration.text
+    assert wrong_duration.json()["status"] == "error"
+    assert client.get("/api/v1/appointments", headers=headers).json()["total"] == 0
+
+    valid = _tool_appointment(
+        client, ids, "k-valid", monday_0900, "2026-09-06T23:30:00+00:00"
+    )
+    assert valid.status_code == 200, valid.text
+    assert valid.json()["status"] == "ok", valid.text
+    listed = client.get("/api/v1/appointments", headers=headers).json()
+    assert listed["total"] == 1
+    assert listed["items"][0]["service_offering_id"] == offering_id
 
 
 def test_create_appointment_tool_writes_once_per_session(ids) -> None:
