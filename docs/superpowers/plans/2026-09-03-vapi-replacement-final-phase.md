@@ -54,7 +54,7 @@
 - [x] **P1.1 多租户账号与角色**（API）：新增 `users` 表（`tenants` 已存在）；角色 `platform_admin` / `tenant_operator`；密码 scrypt 哈希；登录支持多账号并兼容 demo 账号引导；token 增加 `uid` / `role`；管理员接口 `/api/v1/admin/tenants`、`/api/v1/admin/users`（列表/创建/禁用/重置密码）；`platform_admin` 可用 `X-Tenant-ID` 代表任一租户操作，`tenant_operator` 仍禁止越权。
 - [ ] **P1.2 实例归属与分配**：`POST /api/v1/admin/instances/{id}/assign` 将实例迁移到目标租户（Postgres 复合外键 `(tenant_id, id)` 需同步更新 `phone_numbers`、`appointments` 等引用；在事务内完成，写 `instance_config_revisions` 审计）。
 - [ ] **P1.3 Web 管理员控制台**：`/admin/login` 已有路由；复用模板 `admin/*` 页面实现租户列表、用户管理（创建/禁用/重置密码）、实例分配、全局通话记录；菜单按 `roles` 切换（`permission.ts`）。
-- [ ] **P1.4 Vapi 导入器** `scripts/import_vapi.py`：输入 Vapi API 导出或旧 MySQL 导出，输出 Yino API 调用；映射规则：助手 `systemPrompt` → `tenant_prompt`，`firstMessage` → 欢迎语，音色按语言映射到 CosyVoice 默认音色并记录原音色于 `notes`；通话 → `POST /call-records`（`direction=inbound`、转写 `messages`、`ended_reason`、时长、成本）；录音用 Vapi API 下载后写入 `CALL_RECORDING_DIR` 或 OSS；租户/用户 → P1.1 接口；`--dry-run`、幂等（按 `vendor_id` 去重）。
+- [x] **P1.4 Vapi 导入器** `scripts/import_vapi.py`（映射逻辑在 `yino_platform_api.vapi_import`）：助手 `systemPrompt` → `tenant_prompt`（超 8000 字的余量写为知识条目、不 apply）、`firstMessage` → 欢迎语、音色按语言映射默认 CosyVoice（可用 `--voice-map` 覆盖）、Vapi 工具在报告中列出；通话 → `POST /call-records`（方向、转写、`ended_reason`、时长、主叫/被叫；隐藏号码置空）；录音下载后经 `POST /call-records/{id}/recording` 存储（录音存储新增 wav/mp3 支持）；租户/用户经 `/admin/*` 创建，初始口令写入报告；`--dry-run`、状态文件幂等。**发现**：Vapi `/call` 列表只保留约两周（53 通），815 条历史通话须从旧 MySQL 导出，脚本提供 `--legacy-calls-json`（`aac_*` 行，DATETIME 按 JDBC `GMT+11` 换算为 UTC）。真实账户 dry-run：15 个助手全部可映射（3 个提示词溢出、11 个含工具）。
 - [ ] **P1.5 过渡期同步**（可选）：定时从 Vapi 拉取新通话进 Yino，直至 Phase 4 切流完成；旧录音代理由平台 `GET /call-records/{id}/recording` 替代。
 - **验收**：9 个租户账号在新控制台登录，各自看到自己的实例与全部历史通话；管理员能创建租户/用户并分配实例；旧 Java 后端可停机。
 
@@ -116,3 +116,4 @@ Phase 1 与 Phase 2 可并行（前者纯代码，后者以运维为主）；Pha
 
 - 2026-09-03 P0.1 完成：CI `api` job 增加 Postgres service 与独立测试步骤。
 - 2026-09-03 P1.1 完成（API 侧）：`users` 表与迁移 `20260903_0013`、多账号登录、角色、管理员租户/用户接口、demo 账号引导播种、测试覆盖。Web 管理页留待 P1.3。
+- 2026-09-03 P1.4 完成：`scripts/import_vapi.py` + `yino_platform_api.vapi_import`，9 个用例（含端到端导入、录音存储、幂等重跑、dry-run）；真实 Vapi 账户只读 dry-run 通过。录音存储支持 wav/mp3。下一步按 P0.2 → P1.2 → P1.3 推进；英文运行时先用 Qwen（P3.2 盲测不过再切 OpenAI Realtime 或 Deepgram+ElevenLabs 管线）。

@@ -8,12 +8,26 @@ from fastapi import UploadFile
 from ..domain.call_record import CallRecord
 from ..repositories.call_records import CallRecordRepository
 
-ALLOWED_MIME_PREFIXES = ("audio/webm", "audio/ogg", "audio/mp4")
+# Browser captures arrive as webm/ogg/mp4; wav and mp3 cover recordings
+# imported from other telephony providers (Vapi delivers wav).
+ALLOWED_MIME_PREFIXES = (
+    "audio/webm",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/wave",
+    "audio/mpeg",
+)
 
 MIME_SUFFIX = {
     "audio/webm": ".webm",
     "audio/ogg": ".ogg",
     "audio/mp4": ".mp4",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/wave": ".wav",
+    "audio/mpeg": ".mp3",
 }
 
 
