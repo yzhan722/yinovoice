@@ -3,11 +3,22 @@
     <div class="page-head">
       <div>
         <h1 class="title">我的实例</h1>
-        <p class="sub">预置语音前台 · 查看机构配置与通话接入位</p>
+        <p class="sub">预置语音前台 · 可导入多行业合成演示，或点开始通话</p>
       </div>
-      <button data-testid="new-instance" type="button" class="new-button" @click="showCreate = true">
-        新建实例
-      </button>
+      <div class="head-actions">
+        <button
+          data-testid="import-industry"
+          type="button"
+          class="ghost-button"
+          :disabled="busyId === 'import'"
+          @click="importIndustry"
+        >
+          导入行业演示
+        </button>
+        <button data-testid="new-instance" type="button" class="new-button" @click="showCreate = true">
+          新建实例
+        </button>
+      </div>
     </div>
 
     <label class="show-deleted">
@@ -47,6 +58,16 @@
           </div>
         </button>
         <div class="row-actions">
+          <button
+            v-if="!item.deleted_at"
+            type="button"
+            class="action-button primary"
+            data-testid="start-voice-button"
+            :disabled="busyId === item.id"
+            @click="goVoice(item.id)"
+          >
+            开始通话
+          </button>
           <button
             v-if="!item.deleted_at"
             type="button"
@@ -105,6 +126,25 @@ const list = ref<CustomerServiceInstance[]>([]);
 function goDetail(instanceId: string) {
   storeInstanceId(instanceId);
   router.push({ name: 'KnowledgeBaseIndex', query: { instanceId } });
+}
+
+function goVoice(instanceId: string) {
+  storeInstanceId(instanceId);
+  router.push({ name: 'UserRealtimeVoiceIndex', query: { instanceId } });
+}
+
+async function importIndustry() {
+  if (busyId.value) return;
+  busyId.value = 'import';
+  actionError.value = '';
+  try {
+    await svc.importIndustryDemos();
+    await loadList();
+  } catch (_) {
+    actionError.value = '导入行业演示失败，请稍后重试。';
+  } finally {
+    busyId.value = null;
+  }
 }
 
 function onCreated(instance: CustomerServiceInstance) {
@@ -202,6 +242,12 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 
+.head-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
 .show-deleted {
   display: inline-flex;
   align-items: center;
@@ -226,6 +272,22 @@ onMounted(() => {
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+}
+
+.ghost-button {
+  flex-shrink: 0;
+  padding: 9px 16px;
+  border: 1px solid var(--demo-line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--demo-ink);
+  font-weight: 700;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
 }
 
 .error-state { color: #c62828; }
@@ -305,6 +367,12 @@ onMounted(() => {
   &:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+
+  &.primary {
+    border-color: var(--demo-primary);
+    background: var(--demo-primary);
+    color: #fff;
   }
 
   &.danger {

@@ -31,7 +31,7 @@ async def test_demo_seed_refuses_unknown_or_production_environment() -> None:
 
 
 @pytest.mark.asyncio
-async def test_demo_seed_creates_four_synthetic_instances_idempotently() -> None:
+async def test_demo_seed_creates_industry_instances_idempotently() -> None:
     tenant_id = uuid4()
     other_tenant_id = uuid4()
     repository = InMemoryCustomerServiceRepository()
@@ -49,19 +49,22 @@ async def test_demo_seed_creates_four_synthetic_instances_idempotently() -> None
         allow_demo_seed=True,
     )
 
-    assert first.created == 4
+    assert first.created == 7
     assert first.skipped == 0
     assert second.created == 0
-    assert second.skipped == 4
+    assert second.skipped == 7
     items, total = await repository.list_for_tenant(tenant_id, limit=100, offset=0)
-    assert total == 4
+    assert total == 7
     assert {item.display_name for item in items} == {
-        "Demo General Reception",
-        "Demo Follow-up",
-        "Demo Event Information",
-        "Demo Internal Hotline",
+        "银杏口腔前台",
+        "青禾私房菜订位",
+        "临江驿酒店前台",
+        "澄光美容预约",
+        "启明学堂试听",
+        "北辰汽车售后",
+        "青梧置业看房",
     }
-    assert all("Demo" in item.organization_name for item in items)
+    assert all("合成演示" in item.organization_name for item in items)
     _, other_total = await repository.list_for_tenant(
         other_tenant_id, limit=100, offset=0
     )

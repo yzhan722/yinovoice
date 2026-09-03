@@ -192,6 +192,20 @@ describe('RealtimeVoiceService', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual(input);
   });
 
+  it('imports industry demo instances for the current tenant', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ created: 7, skipped: 0 }));
+    const service = new RealtimeVoiceService({ baseUrl: 'http://api.test', tenantId });
+
+    const result = await service.importIndustryDemos();
+
+    expect(result).toEqual({ created: 7, skipped: 0 });
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://api.test/api/v1/customer-services/industry-demos',
+    );
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+  });
+
   it('aborts a bounded request and never exposes the provider error', async () => {
     vi.useFakeTimers();
     vi.mocked(fetch).mockImplementation((_url, init) => (

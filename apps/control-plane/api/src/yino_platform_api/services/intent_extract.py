@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from ..domain.appointment import Appointment
 from ..domain.call_record import CallRecord
 from ..domain.callback_task import CallbackTask
+from ..industry_scenarios import all_service_aliases
 from ..repositories.appointments import AppointmentRepository
 from ..repositories.callback_tasks import CallbackTaskRepository
 from ..repositories.scheduling import SchedulingRepository
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 IntentKind = Literal["appointment", "callback", "skip"]
 
 _APPOINTMENT_WORDS = re.compile(
-    r"(预约|想约|约个|挂号|约一下|帮我约|想挂号)"
+    r"(预约|想约|约个|挂号|约一下|帮我约|想挂号|订位|订桌|订房|试听|看房|保养|年检)"
 )
 _DECLINE_APPOINTMENT = re.compile(
     r"(先不预约|不要预约|暂不预约|不用约|先不约)"
@@ -39,17 +40,24 @@ _NAME_RE = re.compile(
     r"(?:我叫|我是|叫我|姓名是|姓名：|姓名:)\s*([^\s，,。！!？?]{1,8})"
     r"|我姓([一-龥])"
 )
-_SERVICE_KEYWORDS: tuple[tuple[str, str], ...] = (
-    ("洁牙", "洁牙"),
-    ("洗牙", "洁牙"),
-    ("补牙", "补牙"),
-    ("种植", "种植牙"),
-    ("正畸", "正畸"),
-    ("矫正", "正畸"),
-    ("美白", "美白"),
-    ("根管", "根管治疗"),
-    ("拔牙", "拔牙"),
-    ("贴面", "贴面"),
+_SERVICE_KEYWORDS: tuple[tuple[str, str], ...] = tuple(
+    sorted(
+        (
+            ("洁牙", "洁牙"),
+            ("洗牙", "洁牙"),
+            ("补牙", "补牙"),
+            ("种植", "种植牙"),
+            ("正畸", "正畸"),
+            ("矫正", "正畸"),
+            ("美白", "美白"),
+            ("根管", "根管治疗"),
+            ("拔牙", "拔牙"),
+            ("贴面", "贴面"),
+            *all_service_aliases(),
+        ),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    )
 )
 _WEEKDAY_MAP = {
     "一": 0,

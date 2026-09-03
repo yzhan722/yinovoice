@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
+from ..demo_seed import import_industry_scenarios
 from ..dependencies import TenantId
 from ..domain.customer_service import (
     CustomerServiceCreate,
@@ -19,6 +20,8 @@ from ..repositories.customer_services import (
     CustomerServiceRepository,
     CustomerServiceVersionConflict,
 )
+from ..repositories.knowledge import KnowledgeRepository
+from ..repositories.scheduling import SchedulingRepository
 from ..services.livekit_tokens import LiveKitDispatchError, LiveKitTokenIssuer
 
 
@@ -38,11 +41,18 @@ class CustomerServicePage(BaseModel):
     total: int
 
 
+class IndustryDemoImportResult(BaseModel):
+    created: int
+    skipped: int
+
+
 def create_router(
     repository: CustomerServiceRepository,
     token_issuer: LiveKitTokenIssuer,
     call_records: CallRecordRepository,
     config_revisions: ConfigRevisionRepository | None = None,
+    scheduling: SchedulingRepository | None = None,
+    knowledge: KnowledgeRepository | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/customer-services")
 
@@ -60,6 +70,28 @@ def create_router(
             include_deleted=include_deleted,
         )
         return CustomerServicePage(items=items, total=total)
+
+    @router.post(
+        "/industry-demos",
+        response_model=IndustryDemoImportResult,
+    )
+    async def import_industry_demo_instances(
+        tenant_id: TenantId,
+    ) -> IndustryDemoImportResult:
+        if scheduling is None or knowledge is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Industry demo import is unavailable",
+            )
+        result = await import_industry_scenarios(
+            services=repository,
+            scheduling=scheduling,
+            knowledge=knowledge,
+            tenant_id=tenant_id,
+        )
+        return IndustryDemoImportResult(
+            created=result.created, skipped=result.skipped
+        )
 
     @router.post(
         "",

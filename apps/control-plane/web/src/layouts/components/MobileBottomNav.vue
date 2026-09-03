@@ -38,7 +38,7 @@ function sync() {
 
 function isActive(path: string) {
   if (path === '/user/profile') {
-    return ['/user/profile', '/user/achievements', '/user/celebration', '/user/assistant-settings'].some(
+    return ['/user/profile', '/user/assistant-settings'].some(
       (p) => route.path === p || route.path.startsWith(`${p}/`),
     );
   }

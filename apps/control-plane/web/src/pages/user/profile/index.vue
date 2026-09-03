@@ -34,10 +34,8 @@ const name = computed(() => user.userInfo?.name || user.userInfo?.nickname || '�
 
 const menus = [
   { label: '我的实例', path: '/user/assistant-settings', icon: 'setting', bg: '#EEF0FF', fg: '#5B4DFF' },
-  { label: '成就徽章', path: '/user/achievements', icon: 'secured', bg: '#FEF3C7', fg: '#D97706' },
   { label: '学习计划', path: '/user/planner', icon: 'calendar', bg: '#E0F2FE', fg: '#0284C7' },
   { label: '知识库', path: '/user/knowledge-base', icon: 'file', bg: '#DCFCE7', fg: '#16A34A' },
-  { label: '庆祝页', path: '/user/celebration', icon: 'check-circle', bg: '#FCE7F3', fg: '#DB2777' },
 ];
 
 function go(path: string) {

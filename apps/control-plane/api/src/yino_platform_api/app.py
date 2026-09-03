@@ -332,6 +332,8 @@ def create_app(
             token_issuer,
             call_record_repository,
             config_revision_repository,
+            scheduling=scheduling_repository,
+            knowledge=knowledge_repository,
         )
     )
     app.include_router(

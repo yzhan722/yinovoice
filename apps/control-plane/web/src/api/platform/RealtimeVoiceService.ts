@@ -427,6 +427,16 @@ export class RealtimeVoiceService {
     );
   }
 
+  importIndustryDemos(
+    signal?: AbortSignal,
+  ): Promise<{ created: number; skipped: number }> {
+    return this.request(
+      '/api/v1/customer-services/industry-demos',
+      { method: 'POST' },
+      signal,
+    );
+  }
+
   async deleteCustomerService(
     customerServiceId: string,
     signal?: AbortSignal,

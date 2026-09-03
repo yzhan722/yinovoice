@@ -77,6 +77,14 @@ describe('realtime voice and record menus', () => {
     expect(scheduling.children[0].component).toBe('user/scheduling/index');
   });
 
+  it('hides achievement and celebration gamification from the tenant sidebar', async () => {
+    const { list } = (await getMenuList('user')) as any;
+    const achievements = list.find((menu: any) => menu.path === '/user/achievements');
+    const celebration = list.find((menu: any) => menu.path === '/user/celebration');
+    expect(achievements.meta.hideInMenu).toBe(true);
+    expect(celebration.meta.hideInMenu).toBe(true);
+  });
+
   it('makes demo-tenant call records routable for operator users', async () => {
     const { list } = await getMenuList('admin') as any;
     const records = list.find((menu: any) => menu.path === '/admin/call-history');

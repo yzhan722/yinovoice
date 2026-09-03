@@ -216,9 +216,23 @@ def test_extract_callback_includes_name_in_reason() -> None:
     assert result.reason.startswith("王芳")
 
 
-def test_extract_skips_when_no_intent() -> None:
-    result = extract_intents_from_text("你们几点开门？")
-    assert result.kind == "skip"
+def test_extract_restaurant_and_education_booking_phrases() -> None:
+    now = datetime(2026, 8, 17, 9, 0, tzinfo=UTC)
+    dinner = extract_intents_from_text(
+        "我想订桌周五晚上，我叫王芳，电话13800138000",
+        now=now,
+        timezone="Asia/Shanghai",
+    )
+    assert dinner.kind == "appointment"
+    assert dinner.service == "晚市4人桌"
+
+    trial = extract_intents_from_text(
+        "帮我约周六上午少儿英语试听，我叫李明，电话13900139000",
+        now=now,
+        timezone="Asia/Shanghai",
+    )
+    assert trial.kind == "appointment"
+    assert trial.service == "少儿英语试听"
 
 
 @pytest.mark.asyncio

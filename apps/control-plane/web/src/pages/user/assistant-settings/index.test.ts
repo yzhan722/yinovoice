@@ -6,6 +6,7 @@ const listCustomerServices = vi.fn();
 const deleteCustomerService = vi.fn();
 const restoreCustomerService = vi.fn();
 const purgeCustomerService = vi.fn();
+const importIndustryDemosMock = vi.fn();
 let loadFails = false;
 
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }));
@@ -23,6 +24,9 @@ vi.mock('@/api/platform', () => ({
     }
     purgeCustomerService(...args: unknown[]) {
       return purgeCustomerService(...args);
+    }
+    importIndustryDemos(...args: unknown[]) {
+      return importIndustryDemosMock(...args);
     }
   },
 }));
@@ -54,6 +58,7 @@ describe('tenant instance list', () => {
     deleteCustomerService.mockReset().mockResolvedValue(undefined);
     restoreCustomerService.mockReset().mockResolvedValue(activeItem);
     purgeCustomerService.mockReset().mockResolvedValue(undefined);
+    importIndustryDemosMock.mockReset().mockResolvedValue({ created: 7, skipped: 0 });
     listCustomerServices.mockResolvedValue({
       total: 1,
       items: [activeItem],
@@ -74,6 +79,32 @@ describe('tenant instance list', () => {
       name: 'KnowledgeBaseIndex',
       query: { instanceId: '00000000-0000-0000-0000-000000000102' },
     });
+  });
+
+  it('opens realtime voice with the selected instance', async () => {
+    const wrapper = mount(InstanceListPage, {
+      global: { stubs: { 't-tag': true } },
+    });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="start-voice-button"]').trigger('click');
+    expect(push).toHaveBeenCalledWith({
+      name: 'UserRealtimeVoiceIndex',
+      query: { instanceId: '00000000-0000-0000-0000-000000000102' },
+    });
+  });
+
+  it('imports industry demo instances and reloads the list', async () => {
+    const wrapper = mount(InstanceListPage, {
+      global: { stubs: { 't-tag': true } },
+    });
+    await flushPromises();
+
+    await wrapper.get('[data-testid="import-industry"]').trigger('click');
+    await flushPromises();
+
+    expect(importIndustryDemosMock).toHaveBeenCalled();
+    expect(listCustomerServices.mock.calls.length).toBeGreaterThan(1);
   });
 
   it('opens creation and routes to a newly created UUID', async () => {
