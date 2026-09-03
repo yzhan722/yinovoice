@@ -1,5 +1,22 @@
 # TASKS
 
+## Vapi 替代最终阶段（2026-09-03，计划见 `docs/superpowers/plans/2026-09-03-vapi-replacement-final-phase.md`）
+
+- [x] P0.1 CI `api` job 增加 Postgres service，Alembic + Postgres 适配器用例真实执行
+- [ ] P0.2 生产 Alembic 升到 head（含 `20260903_0013 user_accounts`）
+- [ ] P0.3 部署 monorepo 版 call-insights，打通 Yino 通道
+- [ ] P0.4 `-eng` 独立部署合流到运行时档位（P3.2）
+- [x] P1.1 多租户账号与角色（`user_accounts`、scrypt、`platform_admin`/`tenant_operator`、`/api/v1/admin/*`、demo 账号引导播种）
+- [ ] P1.2 实例归属与分配接口（复合外键同步迁移）
+- [ ] P1.3 Web 管理员控制台（租户/用户/实例分配/全局通话）
+- [ ] P1.4 Vapi 导入器（助手→实例、通话→call_records、录音落盘、租户/用户；dry-run、幂等）
+- [ ] P1.5 过渡期 Vapi 通话同步（可选）
+- [ ] P2.1–P2.5 LiveKit SIP + Twilio trunk 落地、`LIVE_SIP_E2E_PASS`、SIP 录音
+- [ ] P3.1 `transfer_call` 工具（API + runtime `transfer_sip_participant`）
+- [ ] P3.2 按实例运行时档位 + 英文管线（Deepgram / ElevenLabs 插件）+ 盲测
+- [ ] P3.3 通话摘要回流 `call_records`
+- [ ] P4.1–P4.4 逐号码切流、停用 Vapi webhook、数据终迁、旧后台下线、密钥轮换
+
 ## 两人并行 Sprint 1（2026-08-31）
 
 - [x] B0 / B-S1.1：Call Insights 迁入 `apps/call-insights`（本工作树；未 commit）

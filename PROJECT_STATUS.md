@@ -1,5 +1,12 @@
 # PROJECT_STATUS
 
+## 2026-09-03 Vapi 替代最终阶段：计划与首批推进
+
+- 计划：`docs/superpowers/plans/2026-09-03-vapi-replacement-final-phase.md`（Phase 0 基线 → Phase 1 控制台接管 → Phase 2 电话接入 → Phase 3 工具/运行时对齐 → Phase 4 切流下线；含完成定义 D1–D6、工作量、风险）。
+- P0.1 完成：CI `api` job 增加 Postgres 17 service，Alembic 全量升级与 17 个 Postgres 用例在 CI 真实执行（此前一直被跳过）。
+- P1.1 完成（API 侧）：`user_accounts` 表（迁移 `20260903_0013`）、scrypt 口令、角色 `platform_admin` / `tenant_operator`、`/api/v1/admin/tenants` 与 `/api/v1/admin/users`（列表/创建/重置口令/启停）；demo 账号与可选 `PLATFORM_ADMIN_ACCOUNT` 在空表时引导播种，`demo / demo123` 与既有测试不受影响；管理员可用 `X-Tenant-ID` 代表任一租户，租户操作员越权仍 403；旧 token 按 `tenant_operator` 兼容。API 186 passed（+6），Postgres 步骤 17 passed。
+- 未做（下一步）：P1.2 实例分配、P1.3 Web 管理页、P1.4 Vapi 导入器；生产尚未升级到 `20260903_0013`（P0.2）。
+
 ## 2026-09-03 Integrator：A / B 合入 main 与需求对照验收
 
 - `main` 已包含 DEV-A `feat/a-runtime-finish-once`（7 commits）与 DEV-B PR #2（segment 1）。CI 五个 job 首次全绿；DEV-B 尚有 B4 callback-lifecycle 第二个 PR 待提交。
