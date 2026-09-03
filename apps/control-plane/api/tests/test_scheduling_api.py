@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -36,6 +36,16 @@ def _client(ids) -> tuple[TestClient, InMemoryAppointmentRepository]:
 
 def _headers(tenant_id: UUID) -> dict[str, str]:
     return {"X-Tenant-ID": str(tenant_id)}
+
+
+def _future_business_day() -> date:
+    # Availability filters out slots before "now"; pick a weekday far enough
+    # ahead that the whole Melbourne business day is still in the future
+    # regardless of the runner's timezone.
+    day = date.today() + timedelta(days=2)
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
 
 
 def _seed_schedule(client: TestClient, ids) -> str:
@@ -87,7 +97,7 @@ def test_availability_skips_lunch_and_occupied_slot(ids) -> None:
     client, _ = _client(ids)
     offering_id = _seed_schedule(client, ids)
     headers = _headers(ids.tenant_id)
-    day = date(2026, 9, 1)  # Tuesday
+    day = _future_business_day()
     listed = client.get(
         "/api/v1/availability",
         headers=headers,
@@ -173,7 +183,7 @@ def test_modify_conflict_and_cancelled_is_terminal(ids) -> None:
     client, _ = _client(ids)
     offering_id = _seed_schedule(client, ids)
     headers = _headers(ids.tenant_id)
-    day = date(2026, 9, 1)
+    day = _future_business_day()
     listed = client.get(
         "/api/v1/availability",
         headers=headers,
@@ -253,12 +263,25 @@ def test_closed_exception_hides_day(ids) -> None:
     client, _ = _client(ids)
     offering_id = _seed_schedule(client, ids)
     headers = _headers(ids.tenant_id)
+    day = _future_business_day()
+    before = client.get(
+        "/api/v1/availability",
+        headers=headers,
+        params={
+            "voice_agent_instance_id": str(ids.instance_id),
+            "service_offering_id": offering_id,
+            "date_from": day.isoformat(),
+            "date_to": day.isoformat(),
+        },
+    )
+    assert before.status_code == 200
+    assert before.json()["total"] > 0
     created = client.post(
         "/api/v1/schedule-exceptions",
         headers=headers,
         json={
             "voice_agent_instance_id": str(ids.instance_id),
-            "date_local": "2026-09-01",
+            "date_local": day.isoformat(),
             "closed": True,
             "reason": "public holiday",
         },
@@ -270,8 +293,8 @@ def test_closed_exception_hides_day(ids) -> None:
         params={
             "voice_agent_instance_id": str(ids.instance_id),
             "service_offering_id": offering_id,
-            "date_from": "2026-09-01",
-            "date_to": "2026-09-01",
+            "date_from": day.isoformat(),
+            "date_to": day.isoformat(),
         },
     )
     assert listed.status_code == 200

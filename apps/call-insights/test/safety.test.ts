@@ -43,6 +43,11 @@ const TRIAL_EMAIL_WRAPPER_PATH = fileURLToPath(
 );
 const TSCONFIG_PATH = fileURLToPath(new URL("../tsconfig.json", import.meta.url));
 const POWERSHELL = process.platform === "win32" ? "powershell.exe" : "pwsh";
+// The wrapper scenarios stub npm with a `.cmd` batch file, so any scenario
+// that actually reaches the npm call can only execute on Windows.
+const itWithFakeNpm = it.skipIf(process.platform !== "win32");
+// First pwsh start on a cold CI runner can exceed vitest's 5s default.
+const POWERSHELL_PARSE_TIMEOUT_MS = 30_000;
 
 interface ModuleReference {
   filePath: string;
@@ -969,9 +974,9 @@ describe("safety policy", () => {
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
-  });
+  }, POWERSHELL_PARSE_TIMEOUT_MS);
 
-  it("runs silent npm against the absolute package root from a foreign CWD", () => {
+  itWithFakeNpm("runs silent npm against the absolute package root from a foreign CWD", () => {
     const scenario = runWrapperScenario({ mode: "success" });
     const stdout = scenario.result.stdout.replaceAll("\r\n", "\n");
     const capture = scenario.capture?.replaceAll("\r\n", "\n");
@@ -1027,7 +1032,7 @@ describe("safety policy", () => {
     expect(scenario.securePrompted).toBe(true);
   });
 
-  it("maps noisy npm failure to one fixed code and preserves its exit code", () => {
+  itWithFakeNpm("maps noisy npm failure to one fixed code and preserves its exit code", () => {
     const scenario = runWrapperScenario({ mode: "nonzero" });
     const visibleOutput = `${scenario.result.stdout}\n${scenario.result.stderr}`;
 
@@ -1043,7 +1048,7 @@ describe("safety policy", () => {
     expect(scenario.securePrompted).toBe(true);
   });
 
-  it("maps malformed child output with exit zero to one fixed error", () => {
+  itWithFakeNpm("maps malformed child output with exit zero to one fixed error", () => {
     const scenario = runWrapperScenario({ mode: "malformed-zero" });
     const visibleOutput = `${scenario.result.stdout}\n${scenario.result.stderr}`;
 
@@ -1076,7 +1081,7 @@ describe("safety policy", () => {
     expect(wrapperSource).not.toMatch(/\$args\b/i);
   });
 
-  it("runs the trial wrapper against test:trial-email with DeepSeek and a dummy VAPI key file", () => {
+  itWithFakeNpm("runs the trial wrapper against test:trial-email with DeepSeek and a dummy VAPI key file", () => {
     const scenario = runTrialWrapperScenario({ mode: "success" });
     const stdout = scenario.result.stdout.replaceAll("\r\n", "\n");
     const capture = scenario.capture?.replaceAll("\r\n", "\n");
