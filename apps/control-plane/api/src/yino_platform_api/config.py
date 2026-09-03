@@ -19,6 +19,8 @@ class PlatformSettings(BaseSettings):
     recording_s3_bucket: str | None = None
     recording_s3_access_key: str | None = None
     recording_s3_secret_key: str | None = None
+    recording_s3_region: str | None = None
+    phone_lookup_token: str | None = None
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None

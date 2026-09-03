@@ -160,6 +160,19 @@ class CallRecordUpdate(BaseModel):
         return self
 
 
+class CallUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input_audio_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    input_text_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    output_audio_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    output_text_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    input_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    output_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    total_tokens: int = Field(default=0, ge=0, le=2_000_000_000)
+    response_count: int = Field(default=0, ge=0, le=100_000)
+
+
 class CallRecord(CallRecordData):
     id: UUID
     tenant_id: UUID
@@ -170,6 +183,7 @@ class CallRecord(CallRecordData):
     recording_failure_code: str | None = None
     recording_egress_id: str | None = None
     recording_object_key: str | None = None
+    usage: CallUsage | None = None
     deleted_at: datetime | None = None
 
     @field_validator("created_at")
@@ -257,6 +271,7 @@ class CallSessionFinish(BaseModel):
     status: EndedCallRecordStatus = "completed"
     ended_reason: EndedReason = "completed"
     ended_at: datetime | None = None
+    usage: CallUsage | None = None
 
     @field_validator("ended_at")
     @classmethod

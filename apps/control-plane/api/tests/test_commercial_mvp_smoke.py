@@ -44,6 +44,7 @@ def _client(ids) -> TestClient:
             scheduling_repository=InMemorySchedulingRepository(),
             tool_invocation_repository=InMemoryToolInvocationRepository(),
             notification_repository=InMemoryNotificationRepository(),
+            phone_lookup_token="test-phone-lookup-token",
         )
     )
 
@@ -65,7 +66,10 @@ def test_commercial_mvp_synthetic_loop_a_to_e(ids) -> None:
         },
     )
     assert created_phone.status_code == 201, created_phone.text
-    lookup = client.get("/api/v1/phone-numbers/lookup?number=%2B61400000001")
+    lookup = client.get(
+        "/api/v1/phone-numbers/lookup?number=%2B61400000001",
+        headers={"X-Phone-Lookup-Token": "test-phone-lookup-token"},
+    )
     assert lookup.status_code == 200
     assert lookup.json()["voice_agent_instance_id"] == str(ids.instance_id)
 
@@ -118,7 +122,7 @@ def test_commercial_mvp_synthetic_loop_a_to_e(ids) -> None:
         json=hours,
     )
     assert replaced.status_code == 200, replaced.text
-    day = date(2026, 9, 1)
+    day = date(2026, 10, 6)
     availability = client.get(
         "/api/v1/availability",
         headers=headers,
@@ -198,7 +202,6 @@ def test_commercial_mvp_synthetic_loop_a_to_e(ids) -> None:
         json={
             "status": "completed",
             "ended_reason": "completed",
-            "ended_at": "2026-09-01T01:20:00Z",
         },
     )
     assert finished.status_code == 200, finished.text

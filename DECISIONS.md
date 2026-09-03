@@ -41,15 +41,64 @@
 
 | 决策 | 内容 |
 |------|------|
-| 通道 | LiveKit SIP 入站字段保留；**本期不接真实 PSTN**（Twilio 官方不支持大陆 +86 语音） |
+| 通道 | LiveKit SIP inbound Runtime adapter 已落地（participant → lookup → 既有 session）。**本期仍不拨真实 PSTN**；买号/改 trunk/dispatch 需单独授权 |
 | 排期 | Yino 内建单资源，不接 Google Calendar / HIS |
 | 转接 | 不提供通话中转人工；只建回拨任务 |
 | 通话中写 | 隐藏 `[[tool:...]]` 旁路；业务错误 HTTP 200 + `status=error` |
 | 挂断抽取 | 诊所时区解析时段；档期不可用或不完整则回拨，不写假预约 |
-| 录音 | 网页本地上传不变；SIP 走对象键 + Fake Egress；缺 S3 配置则关闭 |
+| 录音 | 网页本地上传不变；SIP 在 S3+LiveKit 配齐后走 RoomComposite → S3（OGG）；缺 S3 则关闭。失败不挂断通话 |
+| 对账 | `response.done` usage 累加后写入 `call_records.usage`（可选 JSON） |
+| 入站 lookup | `GET /api/v1/phone-numbers/lookup` 必须 `X-Phone-Lookup-Token`；空 token 一律 401 |
 | 通知 | 配齐 `SMTP_HOST` + `SMTP_FROM` 才发信（smtplib）；失败不回滚业务 |
 | 身份 | Demo 操作员 HMAC 登录（`demo`/`demo123`）；测试与 voice-agent 仍可用 `X-Tenant-ID`；不做计费/角色矩阵 |
 | 部署 | 不自动部署生产；未经用户授权不 commit / push |
+
+## 2026-09-01 LiveKit SIP inbound Runtime
+
+| 决策 | 内容 |
+|---|---|
+| Provider | Runtime provider 固定为 `livekit_sip`；Twilio/Telnyx 只是上游 |
+| 路由 | 仅用 `sip.trunkPhoneNumber`（callee）查 Platform；禁止 fallback 到 caller |
+| 国内送号 | Runtime 将 0 开头固话、400/800/95、11 位手机收成 `+86…` 再 lookup；Yino 绑定仍写 E.164 |
+| Job metadata | 非空走既有 Platform dispatch；空 metadata + SIP kind 才走 inbound lookup |
+| Dispatch Rule | 长期复用 individual + `LIVEKIT_AGENT_NAME`；规则里 agent metadata 必须为空；首测 `hide_phone_number=true` |
+| 等待参与者 | 生产（未开 local-dev 空 metadata）只等 SIP kind=3，避免网页参与者抢先跳过 callee lookup |
+| 去重 | 生产路径不做进程内 seen-call-id set；exactly-once 仍由 lifecycle `/finish` 保证 |
+| 失败 | lookup 无 token / 401 / 404 / disabled / timeout / 5xx 全部 fail closed，不得进入 local default agent |
+
+## 2026-09-02 Runtime hardening
+
+| 决策 | 内容 |
+|---|---|
+| Usage 去重 | 同一 Qwen `response.id` 的重复 `response.done` 只计一次；没有稳定 id 时不去发明 id |
+| 畸形事件 | 无法解析的 Qwen JSON/字段错误跳过，不得拆掉整段会话 |
+| Tool 重试 | 仅 `check_availability` 可对 transport/5xx 重试；写操作默认不自动重试 |
+| 延迟数字 | 本阶段 P50/P95 只标记 SYNTHETIC；不得写成真实电话 RTT |
+
+## 2026-09-02 Voice UX Runtime
+
+| 决策 | 内容 |
+|---|---|
+| Conversation 状态 | Runtime `ConversationDirector` 是轮次/沉默/闲置/时长的权威；禁止 `CLOSED` 后再说话或再调 tool |
+| Greeting | 每 session 最多一次；可打断；调用方已在说话则跳过，不得晚补问候 |
+| Endpoint | `qwen-realtime` 模式以 Qwen `server_vad` 为 turn-end；不并行第二套 endpointing |
+| Provider 断开 | `FAIL_SESSION_ON_PROVIDER_DISCONNECT`；不假装重连恢复上下文；不为了兜底一句话再开第二次模型连接 |
+| Context | Provider 管理；不在客户端 truncate/delete conversation items |
+| 配置归属 | `VOICE_UX_*` 为 Runtime 默认；租户级字段需 B 契约，本轮不改 Control Plane |
+| 延迟数字 | 与 hardening 相同：只标记 SYNTHETIC |
+
+## 2026-09-02 Release & operational readiness (offline)
+
+| 决策 | 内容 |
+|---|---|
+| Offline vs live | `DEV_A_RELEASE_READY_OFFLINE` 只表示 Worker 离线可启动、可验收、可排障；真实电话仍是 **NEEDS_LIVEKIT_PROVISIONING** |
+| 静态配置 vs 探活 | Startup 只校验环境变量形态；Platform/Qwen 在线与否不作为启动强依赖。不付费探测 Qwen。A 不为探活改 B（`DEPENDENCY_PROBE_UNAVAILABLE`） |
+| Liveness | `/livez` = 进程/事件循环仍在；外部短暂失败不得直接 livez=false |
+| Readiness | `/readyz` = 是否接新通话；STARTING/DRAINING/STOPPED 为 false；DEGRADED ≠ DEAD |
+| Ops HTTP | 默认关闭；默认 `127.0.0.1`；`0.0.0.0` 强制回环。不是公网 API |
+| Drain | Runtime `VOICE_WORKER_DRAIN_TIMEOUT_SECONDS` 是会话 cleanup；不替代 livekit-agents `AgentServer.drain`（默认 3600s） |
+| Metrics | 进程生命周期、Worker 级、延迟样本有上限；禁止用 tenant/call/phone 做永久 label |
+| 崩溃 | 优雅关闭尽量 finish/unregister；硬杀进程不承诺 exactly-once finish |
 
 ## 2026-08-31 Monorepo 合仓与两人并行分支
 

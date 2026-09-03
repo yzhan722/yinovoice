@@ -1,0 +1,13 @@
+{
+  "trunk": {
+    "name": "yino-inbound-trunk-ip-acl-PLACEHOLDER",
+    "numbers": [
+      "+E164_PLACEHOLDER"
+    ],
+    "metadata": "",
+    "allowed_addresses": [
+      "OPERATOR_SIP_SIGNALING_IP_PLACEHOLDER"
+    ],
+    "krisp_enabled": false
+  }
+}

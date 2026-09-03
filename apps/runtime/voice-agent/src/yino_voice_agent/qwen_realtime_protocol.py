@@ -16,19 +16,24 @@ class QwenSessionOptions:
     instructions: str
     voice: str
     turn_detection_disabled: bool = False
+    vad_threshold: float = 0.35
+    silence_duration_ms: int = 450
 
 
 def _turn_detection_config(
-    *, turn_detection_disabled: bool
+    *,
+    turn_detection_disabled: bool,
+    vad_threshold: float = 0.35,
+    silence_duration_ms: int = 450,
 ) -> dict[str, object] | None:
     if turn_detection_disabled:
         return None
-    # Balance end-of-turn latency vs false barge-in. ~450ms silence feels snappy
-    # for demo Q&A; silence frames are still forwarded while speech_active.
+    # Authoritative turn-end is Qwen server_vad. LiveKit pipeline VAD is unused
+    # in qwen-realtime mode (AgentSession turn_detection="realtime_llm").
     return {
         "type": "server_vad",
-        "threshold": 0.35,
-        "silence_duration_ms": 450,
+        "threshold": vad_threshold,
+        "silence_duration_ms": silence_duration_ms,
     }
 
 
@@ -43,7 +48,9 @@ def build_session_update(options: QwenSessionOptions) -> dict[str, object]:
             "output_audio_format": "pcm",
             "input_audio_transcription": {"model": "qwen3-asr-flash-realtime"},
             "turn_detection": _turn_detection_config(
-                turn_detection_disabled=options.turn_detection_disabled
+                turn_detection_disabled=options.turn_detection_disabled,
+                vad_threshold=options.vad_threshold,
+                silence_duration_ms=options.silence_duration_ms,
             ),
         },
     }
@@ -81,7 +88,6 @@ def build_audio_clear() -> dict[str, object]:
 def build_response_create() -> dict[str, object]:
     # Session.update already sets modalities; create stays a turn trigger.
     return {"type": "response.create"}
-
 
 
 def build_user_text_item(text: str) -> dict[str, object]:

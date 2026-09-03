@@ -151,7 +151,10 @@ async def test_platform_timeout_is_bounded_and_does_not_hang() -> None:
         )
 
     assert started.is_set()
-    assert result is None
+    assert result is not None
+    assert result["status"] == "error"
+    assert result["code"] == "retryable_transport"
+    assert "HTTP" not in result["customer_message"]
 
 
 @pytest.mark.asyncio
@@ -226,7 +229,10 @@ async def test_availability_retries_once_create_does_not() -> None:
     assert counts["create"] == 1
     assert available is not None
     assert available["status"] == "ok"
-    assert created is None
+    assert created is not None
+    assert created["status"] == "error"
+    assert created["code"] == "retryable_transport"
+    assert "HTTP" not in created["customer_message"]
 
 
 @pytest.mark.asyncio
@@ -297,6 +303,7 @@ async def test_platform_business_error_is_passed_through() -> None:
         "status": "error",
         "code": "slot_unavailable",
         "message": "requested slot is taken",
+        "customer_message": "requested slot is taken",
         "data": {"slot_id": "s-1"},
     }
 
@@ -356,4 +363,3 @@ async def test_exception_finish_records_terminal_timing() -> None:
     assert trace.timestamp("finish_start") is not None
     assert trace.timestamp("finish_complete") is not None
     assert trace.derived()["close_to_finish"] == pytest.approx(0.05)
-

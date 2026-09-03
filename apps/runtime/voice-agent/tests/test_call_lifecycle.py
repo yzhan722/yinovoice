@@ -11,6 +11,7 @@ from yino_voice_agent.call_lifecycle import (
     CallLifecycleClient,
     direction_for_channel,
 )
+from yino_voice_agent.ops import RuntimeMetrics
 from yino_voice_agent.runtime_config import DispatchMetadata
 
 
@@ -184,6 +185,41 @@ async def test_concurrent_finish_callers_send_one_http() -> None:
 
 
 @pytest.mark.asyncio
+async def test_finish_includes_accumulated_usage() -> None:
+    client, state, http = _finish_counting_client()
+    seen: list[httpx.Request] = state["seen"]  # type: ignore[assignment]
+    async with http:
+        await client.start_from_dispatch(_metadata(), "sip-room-1")
+        client.record_usage(
+            {
+                "type": "response.done",
+                "response": {
+                    "usage": {
+                        "total_tokens": 20,
+                        "input_tokens": 12,
+                        "output_tokens": 8,
+                        "input_tokens_details": {
+                            "text_tokens": 4,
+                            "audio_tokens": 8,
+                        },
+                        "output_tokens_details": {
+                            "text_tokens": 1,
+                            "audio_tokens": 7,
+                        },
+                    }
+                },
+            }
+        )
+        await client.finish(status="completed", ended_reason="completed")
+
+    finish_requests = [item for item in seen if item.url.path.endswith("/finish")]
+    body = json.loads(finish_requests[0].content)
+    assert body["usage"]["total_tokens"] == 20
+    assert body["usage"]["input_audio_tokens"] == 8
+    assert body["usage"]["response_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_second_finish_does_not_overwrite_committed_agent_error() -> None:
     client, state, http = _finish_counting_client()
     seen: list[httpx.Request] = state["seen"]  # type: ignore[assignment]
@@ -278,9 +314,7 @@ async def test_cancelled_finish_caller_does_not_deadlock_or_double_http() -> Non
         transport=transport,
         base_url="http://platform.test",
     ) as http:
-        client = CallLifecycleClient(
-            http, UUID("00000000-0000-0000-0000-000000000001")
-        )
+        client = CallLifecycleClient(http, UUID("00000000-0000-0000-0000-000000000001"))
         await client.start_from_dispatch(_metadata(), "sip-room-1")
         blocked = asyncio.create_task(
             client.finish(status="completed", ended_reason="user_hangup")
@@ -311,12 +345,15 @@ async def test_finish_http_failure_does_not_retry_on_second_caller() -> None:
         return httpx.Response(200, json={"id": str(record_id)})
 
     transport = httpx.MockTransport(handler)
+    metrics = RuntimeMetrics()
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://platform.test",
     ) as http:
         client = CallLifecycleClient(
-            http, UUID("00000000-0000-0000-0000-000000000001")
+            http,
+            UUID("00000000-0000-0000-0000-000000000001"),
+            metrics=metrics,
         )
         await client.start_from_dispatch(_metadata(), "sip-room-1")
         await client.finish(status="completed", ended_reason="user_hangup")
@@ -324,4 +361,5 @@ async def test_finish_http_failure_does_not_retry_on_second_caller() -> None:
 
     assert finish_count["n"] == 1
     assert client._finish_committed is True
-
+    assert metrics.finish_attempts == 1
+    assert metrics.finish_failures == 1

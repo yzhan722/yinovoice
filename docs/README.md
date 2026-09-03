@@ -18,13 +18,14 @@
 
 ## 主题文档
 
+- `docs/realtime/`：LiveKit SIP inbound Stage runbook、A→B lookup 契约变更请求、Egress/usage/lookup 鉴权、2026-09-01 Live SIP E2E 结果、2026-09-02 Runtime hardening / Voice UX / **Release operational readiness**（operations runbook、release checklist、offline results；SYNTHETIC）、conversation runtime map、Voice UX timer 契约请求。
 - `docs/architecture/`：当前架构说明。
 - `docs/platform/`：平台规格、设计和实施计划。
 - `.github/workflows/ci.yml`：api / voice-agent / web / call-insights / contracts 分 Job。
 - `packages/contracts/ended-call/`：Yino → Insights ended-call v1 schema 与 fixtures。
 - `docs/platform/superpowers/specs/2026-08-24-commercial-mvp-inbound-voice-design.md`：入站电话商业 MVP 设计。
 - `docs/platform/superpowers/plans/2026-08-24-commercial-mvp-inbound-voice.md`：入站电话实施计划。
-- `docs/platform/2026-08-25-commercial-mvp-manual-checklist.md`：合成数据手工 A–E 冒烟清单。
+- `docs/platform/2026-09-01-industry-demo-scenarios.md`：7 个合成行业语音案例与试话。
 - `docs/platform/2026-08-18-stage1-capability-report.md`：Stage1 能力范围汇报（已交付 / 边界 / 演示剧本）。同目录有 `.html` / `.docx` 导出稿。
 - `docs/source-root/`：迁移源中的 ADR、PRD、研究、测试协议与历史计划。
 - `docs/operations/`：运行和维护说明。

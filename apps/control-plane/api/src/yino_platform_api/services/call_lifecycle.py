@@ -177,6 +177,7 @@ class CallLifecycleService:
                 "ended_reason": request.ended_reason,
                 "ended_at": ended_at,
                 "duration_sec": _duration_sec(record.started_at, ended_at),
+                "usage": request.usage if request.usage is not None else record.usage,
             },
             deep=True,
         )

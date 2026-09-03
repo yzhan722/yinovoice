@@ -58,9 +58,7 @@ class FakeQwenConnector:
         self.connected_url: str | None = None
         self.connected_headers: Mapping[str, str] | None = None
 
-    async def connect(
-        self, url: str, headers: Mapping[str, str]
-    ) -> FakeQwenSocket:
+    async def connect(self, url: str, headers: Mapping[str, str]) -> FakeQwenSocket:
         self.connected_url = url
         self.connected_headers = headers
         self.connected.set()
@@ -88,9 +86,7 @@ def audio_part_added(response_id: str, message_id: str) -> dict[str, object]:
     }
 
 
-def audio_delta(
-    response_id: str, message_id: str, pcm: bytes
-) -> dict[str, object]:
+def audio_delta(response_id: str, message_id: str, pcm: bytes) -> dict[str, object]:
     return {
         "type": "response.audio.delta",
         "response_id": response_id,
@@ -361,6 +357,49 @@ async def test_response_done_closes_remaining_generation_channels() -> None:
     await socket.push({"type": "response.done", "response": {"id": "resp-1"}})
     with pytest.raises(StopAsyncIteration):
         await asyncio.wait_for(anext(generation.message_stream), timeout=0.2)
+
+    await session.aclose()
+    await model.aclose()
+
+
+@pytest.mark.asyncio
+async def test_response_done_forwards_usage_to_sink() -> None:
+    socket = FakeQwenSocket()
+    model, session = await connected_session(socket)
+    seen: list[object] = []
+    model.attach_usage_sink(seen.append)
+    await socket.push(
+        {
+            "type": "response.done",
+            "response": {
+                "id": "resp-usage",
+                "usage": {
+                    "total_tokens": 12,
+                    "input_tokens": 8,
+                    "output_tokens": 4,
+                    "input_tokens_details": {
+                        "text_tokens": 2,
+                        "audio_tokens": 6,
+                    },
+                    "output_tokens_details": {
+                        "text_tokens": 1,
+                        "audio_tokens": 3,
+                    },
+                },
+            },
+        }
+    )
+    for _ in range(50):
+        if seen:
+            break
+        await asyncio.sleep(0)
+    assert seen
+    from yino_voice_agent.usage import parse_response_usage
+
+    parsed = parse_response_usage(seen[0])  # type: ignore[arg-type]
+    assert parsed is not None
+    assert parsed.total_tokens == 12
+    assert parsed.input_audio_tokens == 6
 
     await session.aclose()
     await model.aclose()

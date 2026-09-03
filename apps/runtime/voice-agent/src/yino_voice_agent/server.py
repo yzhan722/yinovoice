@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -13,8 +14,16 @@ from dotenv import load_dotenv
 from livekit.agents import AgentServer, JobContext, cli
 
 from .call_lifecycle import CallLifecycleClient
-from .config import VoiceSettings
+from .config import DEFAULT_LIVEKIT_AGENT_NAME, VoiceSettings
+from .conversation import (
+    Action,
+    ActionKind,
+    ConversationDirector,
+    ConversationEvent,
+)
 from .customer_service import create_customer_service
+from .errors import WorkerNotAcceptingError
+from .ops import WorkerRuntime, get_worker, set_worker
 from .providers import ProviderBundle, build_providers
 from .runtime_config import (
     DispatchMetadata,
@@ -24,8 +33,16 @@ from .runtime_config import (
 )
 from .session import create_session
 from .session_trace import SessionTrace
+from .startup import WorkerStartupSettings
+from .telephony.dispatch import (
+    await_joining_participant,
+    explicit_job_metadata,
+    resolve_sip_inbound_dispatch,
+)
+from .telephony.livekit_sip import is_sip_participant
 from .tool_client import ToolInvocationClient
 from .tool_orchestrator import ToolOrchestrator
+from .voice_ux_config import VoiceUxSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +79,7 @@ def create_console_runtime(
 
 
 async def create_dispatched_runtime(
-    raw_metadata: str,
+    raw_metadata: str | DispatchMetadata,
     *,
     settings: VoiceSettings,
     config_client: PlatformConfigClient,
@@ -71,7 +88,11 @@ async def create_dispatched_runtime(
 ) -> RuntimeDependencies:
     """Create dependencies from one exact Platform-published snapshot."""
 
-    metadata = DispatchMetadata.from_json(raw_metadata)
+    metadata = (
+        raw_metadata
+        if isinstance(raw_metadata, DispatchMetadata)
+        else DispatchMetadata.from_json(raw_metadata)
+    )
     customer_service = await config_client.get(metadata)
     providers = (provider_factory or build_providers)(
         settings, runtime_config=customer_service
@@ -89,9 +110,12 @@ async def create_dispatched_runtime(
 
 load_dotenv(".env.local")
 server = AgentServer()
+logger = logging.getLogger(__name__)
 
 # Isolate parallel deployments (prod vs stage1) via LIVEKIT_AGENT_NAME.
-LIVEKIT_AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", "yino-customer-service")
+# SIP inbound Dispatch Rules must use this same name and leave job metadata empty
+# so callee lookup can select the tenant. Do not hard-code the name elsewhere.
+LIVEKIT_AGENT_NAME = os.getenv("LIVEKIT_AGENT_NAME", DEFAULT_LIVEKIT_AGENT_NAME)
 
 
 def _room_name(ctx: JobContext) -> str:
@@ -103,18 +127,58 @@ def _room_name(ctx: JobContext) -> str:
 
 @server.rtc_session(agent_name=LIVEKIT_AGENT_NAME)
 async def local_voice_agent(ctx: JobContext) -> None:
-    """Run one local or RTC-backed voice-agent session."""
+    """Run one local, Platform-dispatched, or LiveKit SIP inbound session."""
 
-    raw_metadata = ctx.job.metadata
-    if raw_metadata.strip():
-        metadata = DispatchMetadata.from_json(raw_metadata)
-        settings = VoiceSettings.from_env()
+    session_id = _room_name(ctx)
+    worker = get_worker()
+    registered = False
+    outcome = ["failed", "agent_error"]
+    try:
+        worker.accept_session(session_id)
+        registered = True
+        await _run_voice_session(ctx, outcome)
+    except WorkerNotAcceptingError:
+        raise
+    except asyncio.CancelledError:
+        outcome[0] = "completed"
+        outcome[1] = "user_hangup"
+        raise
+    finally:
+        if registered:
+            worker.release_session(
+                session_id, status=outcome[0], ended_reason=outcome[1]
+            )
+
+
+async def _run_voice_session(ctx: JobContext, outcome: list[str]) -> None:
+    settings = VoiceSettings.from_env()
+    explicit = explicit_job_metadata(ctx)
+    participant = None
+    if explicit is None:
+        participant = await await_joining_participant(
+            ctx,
+            sip_only=not settings.allow_empty_dispatch_metadata_local_dev,
+        )
+
+    if explicit is not None or is_sip_participant(participant):
         async with httpx.AsyncClient(
             base_url=settings.platform_api_url,
             timeout=5.0,
         ) as http_client:
+            sip_trace = None
+            if explicit is not None:
+                metadata = explicit
+            else:
+                sip_trace = SessionTrace(session_id=_room_name(ctx))
+                metadata = await resolve_sip_inbound_dispatch(
+                    ctx,
+                    participant=participant,
+                    http=http_client,
+                    trace=sip_trace,
+                    lookup_token=settings.phone_lookup_token,
+                )
             runtime = await create_dispatched_runtime(
-                raw_metadata,
+                metadata,
                 settings=settings,
                 config_client=PlatformConfigClient(http_client),
             )
@@ -123,17 +187,18 @@ async def local_voice_agent(ctx: JobContext) -> None:
                 runtime,
                 metadata=metadata,
                 http_client=http_client,
+                trace=sip_trace,
+                outcome=outcome,
             )
         return
 
-    settings = VoiceSettings.from_env()
     if not settings.allow_empty_dispatch_metadata_local_dev:
         raise RuntimeConfigurationError(
             "RTC jobs with empty dispatch metadata are disabled; "
             "explicit local development opt-in is required"
         )
     runtime = create_console_runtime(settings_loader=lambda: settings)
-    await _speak_with_optional_lifecycle(ctx, runtime)
+    await _speak_with_optional_lifecycle(ctx, runtime, outcome=outcome)
 
 
 async def _speak_with_optional_lifecycle(
@@ -142,6 +207,8 @@ async def _speak_with_optional_lifecycle(
     *,
     metadata: DispatchMetadata | None = None,
     http_client: httpx.AsyncClient | None = None,
+    trace: SessionTrace | None = None,
+    outcome: list[str] | None = None,
 ) -> None:
     customer_service = runtime.customer_service
     if customer_service is None:
@@ -153,9 +220,7 @@ async def _speak_with_optional_lifecycle(
             platform_prompt=customer_service.platform_prompt,
             tenant_prompt=customer_service.tenant_prompt,
             brevity=customer_service.response.brevity,
-            max_spoken_sentences=(
-                customer_service.response.max_spoken_sentences
-            ),
+            max_spoken_sentences=(customer_service.response.max_spoken_sentences),
             ask_one_question_at_a_time=(
                 customer_service.response.ask_one_question_at_a_time
             ),
@@ -164,34 +229,31 @@ async def _speak_with_optional_lifecycle(
 
     lifecycle: CallLifecycleClient | None = None
     orchestrator: ToolOrchestrator | None = None
-    trace: SessionTrace | None = None
+    worker = get_worker()
     if metadata is not None and http_client is not None:
-        trace = SessionTrace(
-            session_id=_room_name(ctx),
-            call_id=metadata.provider_call_id,
-        )
+        if trace is None:
+            trace = SessionTrace(
+                session_id=_room_name(ctx),
+                call_id=metadata.provider_call_id,
+            )
+        elif not trace.call_id:
+            trace.call_id = metadata.provider_call_id
         lifecycle = CallLifecycleClient(
-            http_client, metadata.tenant_id, trace=trace
+            http_client, metadata.tenant_id, trace=trace, metrics=worker
         )
         await lifecycle.start_from_dispatch(metadata, _room_name(ctx))
-        orchestrator = ToolOrchestrator(
-            tools=ToolInvocationClient(
-                http_client, metadata.tenant_id, trace=trace
-            ),
-            lifecycle=lifecycle,
-            session_id=_room_name(ctx),
-            voice_agent_instance_id=metadata.customer_service_id,
-            trace=trace,
-        )
 
     session = create_session(runtime.providers, runtime.vad)
-    if orchestrator is not None:
-        _bind_orchestrator(session, orchestrator)
     closed = asyncio.Event()
     close_events: list[object] = []
     finish_tasks: list[asyncio.Task[None]] = []
+    ux = getattr(runtime.settings, "ux", None) or VoiceUxSettings()
+    director: ConversationDirector | None = None
 
     async def request_finish(status: str, ended_reason: str) -> None:
+        if outcome is not None:
+            outcome[0] = status
+            outcome[1] = ended_reason
         try:
             if orchestrator is not None:
                 orchestrator.mark_closed()
@@ -199,6 +261,89 @@ async def _speak_with_optional_lifecycle(
                 await lifecycle.finish(status=status, ended_reason=ended_reason)
         finally:
             closed.set()
+
+    def apply_ux(actions: tuple[Action, ...]) -> None:
+        for action in actions:
+            if action.kind is ActionKind.SPEAK_GREETING:
+                session.say(
+                    greeting,
+                    allow_interruptions=True,
+                    add_to_chat_ctx=False,
+                )
+                if director is not None:
+                    director.handle(ConversationEvent.GREETING_STARTED)
+                continue
+            if (
+                action.kind
+                in {
+                    ActionKind.SPEAK_SILENCE_PROMPT,
+                    ActionKind.SPEAK_POLITE_CLOSE,
+                    ActionKind.SPEAK_SESSION_LIMIT,
+                    ActionKind.SPEAK_TOOL_BRIDGE,
+                    ActionKind.SPEAK_TOOL_FAILURE,
+                }
+                and action.text
+            ):
+                try:
+                    session.say(
+                        action.text,
+                        allow_interruptions=True,
+                        add_to_chat_ctx=False,
+                    )
+                except Exception as error:
+                    logger.error(
+                        "voice ux speak failed kind=%s error_type=%s",
+                        action.kind,
+                        type(error).__name__,
+                    )
+                continue
+            if action.kind is ActionKind.CANCEL_ASSISTANT:
+                interrupt = getattr(session, "interrupt", None)
+                if callable(interrupt):
+                    interrupt()
+                continue
+            if action.kind is ActionKind.REQUEST_FINISH:
+                finish_tasks.append(
+                    asyncio.create_task(
+                        request_finish(
+                            action.finish_status or "completed",
+                            action.finish_reason or "completed",
+                        )
+                    )
+                )
+
+    director = ConversationDirector(ux, trace=trace, on_actions=apply_ux)
+    llm = getattr(runtime.providers, "llm", None)
+    attach_trace = getattr(llm, "attach_trace", None)
+    if callable(attach_trace) and trace is not None:
+        attach_trace(trace)
+    attach_conversation = getattr(llm, "attach_conversation", None)
+    if callable(attach_conversation):
+        attach_conversation(director)
+    attach_metrics = getattr(llm, "attach_metrics", None)
+    if callable(attach_metrics):
+        attach_metrics(worker)
+    orchestrator = None
+    if metadata is not None and http_client is not None and lifecycle is not None:
+        orchestrator = ToolOrchestrator(
+            tools=ToolInvocationClient(
+                http_client,
+                metadata.tenant_id,
+                trace=trace,
+                metrics=worker,
+            ),
+            lifecycle=lifecycle,
+            session_id=_room_name(ctx),
+            voice_agent_instance_id=metadata.customer_service_id,
+            trace=trace,
+            conversation=director,
+        )
+    if lifecycle is not None:
+        attach_usage = getattr(runtime.providers.llm, "attach_usage_sink", None)
+        if callable(attach_usage):
+            attach_usage(lifecycle.record_usage)
+    if orchestrator is not None:
+        _bind_orchestrator(session, orchestrator)
 
     on = getattr(session, "on", None)
     if callable(on):
@@ -228,11 +373,8 @@ async def _speak_with_optional_lifecycle(
             )
             if trace is not None:
                 trace.mark("runtime_ready")
-            session.say(
-                greeting,
-                allow_interruptions=True,
-                add_to_chat_ctx=False,
-            )
+            director.handle(ConversationEvent.SESSION_READY)
+            director.start_background()
         except Exception:
             await request_finish("failed", "agent_error")
             raise
@@ -241,23 +383,37 @@ async def _speak_with_optional_lifecycle(
         elif lifecycle is not None:
             await request_finish("completed", "completed")
     finally:
+        await director.aclose()
         if orchestrator is not None:
             orchestrator.mark_closed()
             await orchestrator.wait_idle()
         if finish_tasks:
             await asyncio.gather(*finish_tasks, return_exceptions=True)
+        if trace is not None:
+            worker.metrics.observe_trace(trace.derived())
 
 
 def _ended_from_close(event: object | None) -> tuple[str, str]:
+    """Map AgentSession CloseEvent.reason (CloseReason names).
+
+    Inbound SIP BYE is DisconnectReason.CLIENT_INITIATED on the participant.
+    RoomIO then closes the session with CloseReason.PARTICIPANT_DISCONNECTED.
+    CLIENT_INITIATED is kept as a defensive alias if a close event ever carries
+    the disconnect enum name.
+    """
     if event is None:
         return ("completed", "completed")
     if getattr(event, "error", None) is not None:
         return ("failed", "agent_error")
     reason = getattr(event, "reason", None)
     name = getattr(reason, "name", None)
-    if name in {"PARTICIPANT_DISCONNECTED", "USER_INITIATED"}:
+    if name in {
+        "PARTICIPANT_DISCONNECTED",
+        "USER_INITIATED",
+        "CLIENT_INITIATED",
+    }:
         return ("completed", "user_hangup")
-    if name == "ERROR":
+    if name in {"ERROR", "SIP_TRUNK_FAILURE"}:
         return ("failed", "agent_error")
     return ("completed", "completed")
 
@@ -287,8 +443,14 @@ def _bind_orchestrator(session: object, orchestrator: ToolOrchestrator) -> None:
         if not getattr(event, "is_final", False):
             return
         transcript = getattr(event, "transcript", "")
+        item_id = getattr(event, "item_id", None)
         if isinstance(transcript, str) and transcript.strip():
-            orchestrator.spawn(orchestrator.handle_user_final(transcript))
+            orchestrator.spawn(
+                orchestrator.handle_user_final(
+                    transcript,
+                    item_id=item_id if isinstance(item_id, str) else None,
+                )
+            )
 
     def _on_item(event: object) -> None:
         item = getattr(event, "item", None)
@@ -302,5 +464,46 @@ def _bind_orchestrator(session: object, orchestrator: ToolOrchestrator) -> None:
     on("conversation_item_added", _on_item)
 
 
+def install_worker_lifecycle(
+    agent_server: AgentServer,
+    worker: WorkerRuntime,
+    startup: WorkerStartupSettings,
+) -> None:
+    """Bind Runtime drain/ops to LiveKit AgentServer.drain (1.7.1)."""
+
+    @agent_server.on("worker_started")
+    def _on_worker_started(_payload: object = None) -> None:
+        worker.mark_ready()
+        if startup.ops_enabled:
+            worker.spawn_ops(host=startup.ops_host, port=startup.ops_port)
+
+    original_drain = agent_server.drain
+
+    async def drain_with_runtime(*args: object, **kwargs: object) -> None:
+        worker.begin_drain()
+        try:
+            await original_drain(*args, **kwargs)
+        finally:
+            await worker.drain_sessions()
+            await worker.aclose_ops()
+            worker.mark_stopped()
+
+    agent_server.drain = drain_with_runtime  # type: ignore[method-assign]
+
+
+def prepare_worker(agent_server: AgentServer) -> WorkerRuntime:
+    from .config import ConfigurationError
+
+    try:
+        startup = WorkerStartupSettings.from_env()
+    except ConfigurationError as error:
+        raise SystemExit(f"voice worker startup failed: {error}") from error
+    runtime = WorkerRuntime(drain_timeout_s=startup.drain_timeout_s)
+    set_worker(runtime)
+    install_worker_lifecycle(agent_server, runtime, startup)
+    return runtime
+
+
 if __name__ == "__main__":
+    prepare_worker(server)
     cli.run_app(server)

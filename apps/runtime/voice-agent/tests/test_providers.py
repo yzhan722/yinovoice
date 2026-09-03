@@ -179,6 +179,8 @@ def test_realtime_bundle_builds_only_the_configured_qwen_model() -> None:
         "model": "qwen-realtime-test-model",
         "voice": "test-voice",
         "instructions": "",
+        "vad_threshold": 0.35,
+        "silence_duration_ms": 450,
     }
     assert realtime_constructor.calls == [bundle.llm]
 

@@ -7,8 +7,17 @@
 - [x] B-S1.3：号码绑定 inbound lookup 产品化测试（E.164 / 租户隔离 / 无 secret 字段；增强现有 API，未新建重复模型）
 - [x] B-S1.4：预约 modify 冲突 + cancel 幂等 + 禁止修改已取消预约
 - [ ] B 短任务合回 `dev/platform-insights`（需用户授权 commit/push）
+- [x] DEV-A LiveKit SIP inbound adapter（模拟 E2E / 模板 / 只读 preflight；未真实拨号）
+- [x] DEV-A 国内 SIP 送号归一化（0519/010/400/11 位手机 → E.164；未真实拨号）
+- [x] DEV-A LiveKit Egress → S3 客户端（RoomComposite audio/OGG；缺 S3 则关闭；CI 不连真实桶）
+- [x] DEV-A `response.done` usage 入账（finish JSON + `call_records.usage`）
+- [x] lookup 鉴权归控制面（`X-Phone-Lookup-Token`；空 token 401）
+- [x] DEV-A Runtime hardening campaign (synthetic concurrency / races / replay / soak; 2026-09-02). Real SIP still **NEEDS_LIVEKIT_PROVISIONING**
+- [x] DEV-A Voice UX Runtime campaign (greeting-once / silence / idle / duration / endpointing / barge-in UX / tool bridge / synthetic soak+fuzz; 2026-09-02). Real SIP still **NEEDS_LIVEKIT_PROVISIONING**
+- [x] DEV-A Release & Operational Readiness (offline 2026-09-02): registry wired, bounded suppression ids, startup validation, loopback ops, metrics, release gate, runbook. Real SIP still **NEEDS_LIVEKIT_PROVISIONING**
+- [ ] DEV-B optional: per-tenant Voice UX timer fields (see `docs/realtime/contract-change-request-voice-ux-timers.md`; A did not implement)
+- [ ] DEV-A Live SIP Stage E2E → `LIVE_SIP_E2E_PASS`（2026-09-01 停在 **NEEDS_LIVEKIT_PROVISIONING**：无凭据、无 worker、trunk/DID/dispatch 未在本机可见）
 - [ ] Integrator 验收后再合 `main`
-- [ ] DEV-A Sprint 1（lifecycle / SIP adapter / tool client）— 本窗口不实现
 
 ## 商业 MVP 入站电话闭环（2026-08-25）
 
@@ -17,7 +26,7 @@
 - [x] M3：内建单资源排期 + availability；停止编造预约时段
 - [x] M4：Tool Invocation API + 幂等写
 - [x] M5：Runtime 通话中 `[[tool:...]]` 旁路
-- [x] M6：SIP 录音对象键 + Fake Egress（无真实 LiveKit Egress 客户端）
+- [x] M6：SIP 录音对象键 + LiveKit RoomComposite Egress 客户端（S3 配齐才启用；测试 mock）
 - [x] M7：通知设置 + SMTP（配齐 host+from 走 smtplib；测试用 Fake sink）
 - [x] M8：TDesign 电话/排期页、通话抽屉 Tool 记录、Dashboard 真实 KPI；排期页可保存通知邮箱
 - [x] M9：`.env.example`、合成冒烟、手工 A–E 清单、治理文档对齐
@@ -27,13 +36,16 @@
 - [x] 文本知识条目编译进 `tenant_prompt` 标记区；`.txt` 上传；不接 RAG / PDF
 - [x] Call Insights 渠道契约（分仓时已落地；2026-08-31 起应用代码迁入 Monorepo，契约不重写）。代码完成，未部署、未 commit
 - [x] Runtime 成功挂断调用 `finish`（等 LiveKit close / job shutdown；失败路径仍 `agent_error`）
-- [ ] 真实 PSTN / LiveKit SIP trunk（**已搁置**：先完成网页与后处理闭环；国内 +86 不能靠 Twilio）
-- [ ] 真实 LiveKit Egress → S3
+- [ ] 真实 PSTN / LiveKit SIP trunk（代码已就绪；2026-09-01 真电话 E2E **BLOCKED**：缺 `.env.local`、worker、可见 trunk/DID/dispatch；未买号、未改资源）
+- [x] LiveKit Egress → S3 客户端（仍需生产 S3/LiveKit Egress worker 与迁移 `20260901_0012`）
 - [ ] 生产 SSO / 角色矩阵 / 计费（当前仅 Demo 操作员 HMAC 登录；voice-agent 仍可用 `X-Tenant-ID`）
 
 ## Voice Agent Instance 产品化
 
 - [x] A1：租户实例列表 API、真实 UUID 选择、助手列表/实时通话/知识库配置接入
+- [x] 实时语音页多实例切换（会话存储 + `instanceId` 查询同步；切换会重挂 LiveKit 面板）
+- [x] 实时语音页可选 CosyVoice 音色（写入当前实例，下次通话生效）
+- [x] 多行业合成演示案例（7 个虚构机构 + 排期/知识 + 导入接口；2026-09-01 已覆盖现站 `/opt/yino-vapi`）
 - [x] A2：实例新建 API、服务端校验、前端表单及受保护的合成演示数据初始化函数
 - [x] A2 表单：打开时预填合成演示默认文案（可编辑）
 - [x] Stage1：构建 `/stage1` 前端并用 `scripts/deploy_stage1_isolated.py` 部署到 `/opt/yino-vapi-stage1`（不动生产）
@@ -61,7 +73,7 @@
 - [ ] 修正其余 `scripts/` 相对路径以适配新 monorepo 布局  
 - [ ] 收敛 `deploy/src` 与 `apps/` 重复代码  
 - [ ] 补齐 `packages/vapi-adapter` 设计与占位实现  
-- [ ] 录音转 S3 兼容存储的设计落地  
+- [x] 录音转 S3 兼容存储的设计落地（客户端已接；生产桶与 Egress worker 仍待配）  
 - [ ] 生产 SSO / 角色矩阵 / 计费（当前仅 Demo 操作员 HMAC 登录）
 - [x] 配置发布：版本 / 校验 / 回读 / Diff / 回滚  
 - [ ] 决定是否移除已跟踪的三个 `*.egg-info` 生成元数据目录
@@ -70,6 +82,6 @@
 ## 中期
 
 - [ ] C 后续：多医生 / HIS 对接（当前商业 MVP 为单资源内建排期）
-- [ ] SIP / 电话通道：生产 PSTN 与真实 Egress（**暂缓**；代码映射与 Fake Egress 已在，不阻塞网页预约/回拨闭环）  
+- [ ] SIP / 电话通道：生产 PSTN 与真实 Egress worker（代码映射与 Egress 客户端已在，不阻塞网页预约/回拨闭环）  
 - [ ] 生产多租户与完整 RBAC（当前仅 Demo 操作员 HMAC；voice-agent 仍可用 `X-Tenant-ID`）  
 - [ ] 按需纳入 archive 原型（单独确认）  

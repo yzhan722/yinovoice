@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, cast
 from urllib.parse import urlsplit
 
+from .voice_ux_config import VoiceUxSettings
+
 ProviderMode = Literal["qwen-realtime", "pipeline"]
+DEFAULT_LIVEKIT_AGENT_NAME = "yino-customer-service"
 
 
 class ConfigurationError(ValueError):
@@ -34,11 +37,11 @@ class VoiceSettings:
     greeting: str
     platform_api_url: str
     allow_empty_dispatch_metadata_local_dev: bool
+    phone_lookup_token: str | None
+    ux: VoiceUxSettings = field(default_factory=VoiceUxSettings)
 
     @classmethod
-    def from_env(
-        cls, env: Mapping[str, str] | None = None
-    ) -> VoiceSettings:
+    def from_env(cls, env: Mapping[str, str] | None = None) -> VoiceSettings:
         values = os.environ if env is None else env
 
         def read(name: str, default: str | None = None) -> str:
@@ -58,9 +61,7 @@ class VoiceSettings:
                 return False
             raise ConfigurationError(f"{name} must be true or false")
 
-        provider_mode_value = read(
-            "VOICE_PROVIDER_MODE", "qwen-realtime"
-        )
+        provider_mode_value = read("VOICE_PROVIDER_MODE", "qwen-realtime")
         if provider_mode_value not in {"qwen-realtime", "pipeline"}:
             raise ConfigurationError(
                 "VOICE_PROVIDER_MODE must be qwen-realtime or pipeline"
@@ -83,13 +84,8 @@ class VoiceSettings:
                 raise ConfigurationError(
                     "QWEN_REALTIME_URL must be a valid wss:// URL"
                 ) from None
-            if (
-                parsed_realtime_url.scheme != "wss"
-                or not parsed_realtime_url.netloc
-            ):
-                raise ConfigurationError(
-                    "QWEN_REALTIME_URL must be a valid wss:// URL"
-                )
+            if parsed_realtime_url.scheme != "wss" or not parsed_realtime_url.netloc:
+                raise ConfigurationError("QWEN_REALTIME_URL must be a valid wss:// URL")
         else:
             dashscope_websocket_url = read("DASHSCOPE_WEBSOCKET_URL")
             openai_api_key = read("OPENAI_API_KEY")
@@ -98,6 +94,12 @@ class VoiceSettings:
             tts_model = read("TTS_MODEL", "gpt-4o-mini-tts")
             tts_voice = read("TTS_VOICE", "ash")
             language = read("AGENT_LANGUAGE", "zh")
+
+        def read_optional(name: str) -> str | None:
+            raw = values.get(name)
+            if raw is None or not raw.strip():
+                return None
+            return raw.strip()
 
         return cls(
             provider_mode=provider_mode,
@@ -125,4 +127,6 @@ class VoiceSettings:
             allow_empty_dispatch_metadata_local_dev=read_bool(
                 "ALLOW_EMPTY_DISPATCH_METADATA_LOCAL_DEV",
             ),
+            phone_lookup_token=read_optional("PHONE_LOOKUP_TOKEN"),
+            ux=VoiceUxSettings.from_env(values),
         )

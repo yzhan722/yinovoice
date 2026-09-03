@@ -1,0 +1,12 @@
+{
+  "trunk": {
+    "name": "yino-inbound-trunk-PLACEHOLDER",
+    "numbers": [
+      "+E164_PLACEHOLDER"
+    ],
+    "metadata": "",
+    "auth_username": "SIP_USERNAME_PLACEHOLDER",
+    "auth_password": "SIP_PASSWORD_PLACEHOLDER",
+    "krisp_enabled": false
+  }
+}

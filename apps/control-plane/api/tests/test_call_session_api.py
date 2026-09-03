@@ -196,6 +196,40 @@ def test_finish_is_idempotent_and_records_end_reasons(ids) -> None:
     assert after_close.status_code == 409
 
 
+def test_finish_persists_response_done_usage(ids) -> None:
+    client = _client(ids)
+    started = client.post(
+        "/api/v1/call-sessions/start",
+        headers=_headers(ids.tenant_id),
+        json=_start_payload(ids, started_at="2026-08-24T01:00:00Z"),
+    )
+    record_id = started.json()["id"]
+    finished = client.post(
+        f"/api/v1/call-sessions/{record_id}/finish",
+        headers=_headers(ids.tenant_id),
+        json={
+            "status": "completed",
+            "ended_reason": "completed",
+            "ended_at": "2026-08-24T01:03:00Z",
+            "usage": {
+                "input_audio_tokens": 2250,
+                "input_text_tokens": 80,
+                "output_audio_tokens": 1200,
+                "output_text_tokens": 40,
+                "input_tokens": 2330,
+                "output_tokens": 1240,
+                "total_tokens": 3570,
+                "response_count": 4,
+            },
+        },
+    )
+    assert finished.status_code == 200, finished.text
+    usage = finished.json()["usage"]
+    assert usage["total_tokens"] == 3570
+    assert usage["input_audio_tokens"] == 2250
+    assert usage["response_count"] == 4
+
+
 def test_one_shot_web_call_record_create_still_works(ids) -> None:
     client = _client(ids)
     created = client.post(

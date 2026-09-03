@@ -123,6 +123,7 @@ def create_app(
     knowledge_repository: KnowledgeRepository | None = None,
     recording_dir: Path | str | None = None,
     call_recording_max_bytes: int | None = None,
+    phone_lookup_token: str | None = None,
 ) -> FastAPI:
     settings = PlatformSettings()
     engine: AsyncEngine | None = None
@@ -209,6 +210,10 @@ def create_app(
             bucket=settings.recording_s3_bucket,
             access_key=settings.recording_s3_access_key,
             secret_key=settings.recording_s3_secret_key,
+            region=settings.recording_s3_region,
+            livekit_api_url=settings.livekit_api_url,
+            livekit_api_key=settings.livekit_api_key,
+            livekit_api_secret=settings.livekit_api_secret,
         )
     )
     notification_sink = None
@@ -371,8 +376,17 @@ def create_app(
     app.include_router(
         create_callback_task_router(callback_task_repository, repository)
     )
+    resolved_lookup_token = (
+        phone_lookup_token
+        if phone_lookup_token is not None
+        else settings.phone_lookup_token
+    )
     app.include_router(
-        create_phone_number_router(phone_number_repository, repository)
+        create_phone_number_router(
+            phone_number_repository,
+            repository,
+            lookup_token=resolved_lookup_token,
+        )
     )
     app.include_router(
         create_scheduling_router(

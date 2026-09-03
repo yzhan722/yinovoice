@@ -1,5 +1,78 @@
 # PROJECT_STATUS
 
+## 2026-09-02 DEV-A Release & Operational Readiness (offline)
+
+- Voice Agent local suite **401 passed** (campaign start baseline was 357). WorkerSessionRegistry is on the production job path; Qwen cancelled `response.id` suppression is a bounded window (4096); static `WorkerStartupSettings` fail-fast for `stage`; optional loopback ops HTTP (`/livez` `/readyz` `/status`); process-lifetime `RuntimeMetrics`; Python `release_gate` (`fast` / `full`).
+- Ops HTTP default bind is `127.0.0.1` and default **disabled**. Liveness is not LiveKit Agents `GET /` (that SDK route is 503 on LiveKit disconnect).
+- Docs: `docs/realtime/operations-runbook.md`, `docs/realtime/release-checklist.md`, `docs/realtime/release-operational-readiness-results.md`, `docs/realtime/release-readiness-baseline.md`.
+- **Real PSTN calls: 0.** Status remains **NEEDS_LIVEKIT_PROVISIONING**. Offline gate must not be read as `LIVE_SIP_E2E_PASS`.
+- No Control Plane / Call Insights implementation in this campaign.
+
+## 2026-09-02 DEV-A Voice UX Runtime (synthetic)
+
+- Voice Agent local suite **357 passed**. ConversationDirector owns greeting-once, silence prompts (max 2), idle (180s), max session (1800s), tool bridge, and `FAIL_SESSION_ON_PROVIDER_DISCONNECT`.
+- Endpoint authority in qwen-realtime mode remains Qwen `server_vad`. Runtime does not add a second endpointing system. Context stays provider-managed (no client truncate).
+- Latency and soak numbers in `docs/realtime/voice-ux-runtime-results.md` are **SYNTHETIC**. Real PSTN calls: **0**. Status remains **NEEDS_LIVEKIT_PROVISIONING**.
+- No Control Plane / Call Insights implementation. Timer fields for tenants are a request-only contract note.
+
+## 2026-09-02 DEV-A Runtime hardening (synthetic)
+
+- Voice Agent local suite **308 passed**. Concurrency 10/25/50, finish race matrix, Qwen malformed/unexpected events, barge-in, tool cancel, FakeClock soak (500 turns / 1000 `response.done`), replay + SIP synthetic fixtures, worker drain, recording seam.
+- Usage is session-local deduped by Qwen `response.id`. Malformed events do not crash the agent. Tool non-idempotent names are still not retried.
+- Latency numbers in `docs/realtime/runtime-hardening-results.md` are **SYNTHETIC**. Real calls tested: **0**. Status remains **NEEDS_LIVEKIT_PROVISIONING**, not `LIVE_SIP_E2E_PASS`.
+- No new Control Plane / Call Insights work this campaign. API / Insights failures stay **OUT_OF_SCOPE_B**.
+
+## 2026-09-01 DEV-A Egress / usage / lookup 鉴权
+
+- LiveKit RoomComposite 音频 Egress 客户端已接控制面：S3 四件套 + LiveKit API 配齐后写入既有对象键；失败不挂断。CI 不连真实桶。
+- Qwen `response.done` usage 累加后随 `/finish` 落 `call_records.usage`（Alembic `20260901_0012`）。日志只记 response_count / total_tokens。
+- `GET /api/v1/phone-numbers/lookup` 必须 `X-Phone-Lookup-Token`；空 `PHONE_LOOKUP_TOKEN` 一律 401。Runtime 未配置 token 则根本不发查询。
+- 详见 `docs/realtime/2026-09-01-egress-usage-lookup-auth.md`。未覆盖生产、未配真实 S3。
+
+## 2026-09-01 DEV-A 国内 SIP 送号归一化
+
+- Runtime 接受常州固话 `0519…`、京号 `010…`、400 与 11 位手机等国内送号，收成 E.164 后再 `phone-numbers/lookup`。非号码字符串仍 fail closed。
+- 电信 IP 白名单中继模板：`integrations/sip/livekit/inbound-trunk.ip-acl.example.json`。
+- 仍未买号、未改 trunk、未拨打。
+
+## 2026-09-01 多行业演示已覆盖生产网页
+
+- 已覆盖 `/opt/yino-vapi` 的 frontend-dist 与 platform-api/src；**未改** `config/*.env`；**未动** Stage1。备份 `*.bak-20260901-202623`。
+- API 重启后 Demo 租户已有 8 个实例（7 个行业合成演示 + 原口腔实例）。`POST /industry-demos` 回 `created:0 skipped:7`（幂等）。front 200，Stage1 仍为 active。
+- 入口：`https://8.215.80.82/#/user/realtime-voice`，请硬刷新后再切实例。
+
+## 2026-09-01 多行业合成演示案例
+
+- 7 个虚构行业实例（口腔、餐饮、酒店、美业、教培、汽车售后、房产看房）：完整前台话术、预约/回拨 Tool、排期项目、知识条目。
+- Demo 租户 API 启动时幂等补齐；网页「我的实例」可点「导入行业演示」。试话见 `docs/platform/2026-09-01-industry-demo-scenarios.md`。
+- 挂断抽取补了订桌/订房/试听/看房/保养等意向词。现站需覆盖 API + 前端后才会出现。
+
+## 2026-09-01 实时语音页可切换多实例
+
+- 实时语音页列出当前租户全部语音实例；下拉切换会结束当前通话、按新 `customer-service-id` 重挂 LiveKit 面板，并写入 `yino-selected-instance-id` 与 `?instanceId=`。
+- 「我的实例」增加「开始通话」，进入实时语音页时带上该实例。
+- 实时语音页可直接选 CosyVoice 音色；保存到当前实例后重挂面板，下次开口生效。
+
+## 2026-09-01 生产 `/opt/yino-vapi` 覆盖（用户明确要求网页通话，非本机）
+
+- 已覆盖宝塔现站 `https://8.215.80.82/`：frontend-dist + platform-api + voice-agent 源码；**未改** `config/*.env` 里的密钥；**未动** `/opt/yino-vapi-stage1`。
+- 生产库 `yino_platform` 已从 Alembic `20260811_0001` 升到 `20260825_0011`。备份目录带时间戳 `*.bak-20260901-173811`。
+- 验收（本机 SSH 回环）：front 200、`/health` 200、`GET /api/v1/customer-services` 200（覆盖前 list 为 404）。LiveKit / API / voice-agent systemd 均为 active。
+- 网页通话入口：`https://8.215.80.82/#/user/realtime-voice`（浏览器麦克风，不是手机号）。
+
+## 2026-09-01 DEV-A Live SIP Stage E2E（本机）
+
+- 代码门仍是 **READY_FOR_LIVE_SIP_TEST**。真电话门：**BLOCKED** / **NEEDS_LIVEKIT_PROVISIONING**。
+- 本机无 `.env.local`、无 `LIVEKIT_*` / `PLATFORM_API_URL`、无运行中的 voice-agent、无 :7880 / :8000。`sip_preflight.py --probe` 因凭据缺失跳过。
+- 未买号、未改 trunk/dispatch、未拨打。结果：`docs/realtime/2026-09-01-live-sip-e2e-result.md`。
+
+## 2026-09-01 DEV-A LiveKit SIP inbound（代码在 `feat/a-runtime-finish-once`，未 commit / 未部署 / 未真实拨号）
+
+- Runtime 可从 LiveKit SIP participant attributes 解析 inbound call，经 `GET /api/v1/phone-numbers/lookup` 解析 tenant/agent，再进入既有 `create_dispatched_runtime` / lifecycle / exactly-once finish。
+- 生产 empty-metadata 任务只等待 SIP kind；lookup 超时不把 callee URL 链进异常；日志对 `sip.callID` 做号码脱敏。Dispatch 模板默认 `hide_phone_number: true`。
+- Fake Telephony seam 保留；生产路径不使用 `FakeInboundProvider._seen_ids`。
+- 未购买号码、未修改 LiveKit trunk/dispatch、未拨打真实电话。Stage 模板：`integrations/sip/livekit/`。Runbook：`docs/realtime/2026-09-01-sip-inbound-stage-runbook.md`。
+
 ## 2026-08-31 Call Insights Monorepo（代码在 `feat/b-monorepo-insights`，未 commit / 未部署）
 
 - **合仓**：`apps/vapi-call-insights`（来源仓 `yzhan722/vapi-call-insights` @ `762eeb2`）以 Git 跟踪内容迁入 `apps/call-insights`。未迁 n8n export 工具、无嵌套 `.git`、无真实 `.env`/DB/音频。
@@ -23,8 +96,8 @@
 - **租户解析**：Bearer 有效则用 token 内租户；仅 `X-Tenant-ID` 仍给测试与 voice-agent；两者都有且不一致 → 403；都没有 → 401。
 - **配置发布**：创建实例自动基线快照；`GET .../revisions`、`GET .../config-diff`、`POST .../publish`、`POST .../rollback`。通话仍读当前实例行，不拆 draft/live 调度。
 - **知识**：文本条目挂在实例上；`POST .../knowledge/apply` 写入 `tenant_prompt` 的 `<!-- yino-knowledge-start -->` / `end` 标记。仅 `.txt`；无 PDF/DOCX/RAG。
-- **Alembic head**：`20260825_0011`（`instance_config_revisions` + `knowledge_documents`）。修订自 `20260825_0010`。
-- **未做**：SSO、角色矩阵、计费、真实 PSTN、S3 Egress 客户端、通话中 RAG。
+- **Alembic head**：`20260901_0012`（`call_records.usage` JSONB）。修订自 `20260825_0011`。
+- **未做**：SSO、角色矩阵、计费、真实 PSTN、生产 S3/Egress worker、通话中 RAG。
 
 ## 2026-08-25 商业 MVP 入站电话闭环（代码已落地，未部署）
 
