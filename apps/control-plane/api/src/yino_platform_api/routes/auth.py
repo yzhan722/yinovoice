@@ -39,7 +39,7 @@ def create_router(auth: AuthService) -> APIRouter:
 
     @router.post("/login", response_model=LoginResponse)
     async def login(payload: LoginRequest) -> LoginResponse:
-        result = auth.login(payload.account, payload.password)
+        result = await auth.login(payload.account, payload.password)
         if result is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -77,7 +77,7 @@ def create_router(auth: AuthService) -> APIRouter:
             userAccount=principal.account,
             userNickname=principal.nickname,
             tenant_id=principal.tenant_id,
-            roles=["tenant_operator"],
+            roles=[principal.role],
         )
 
     return router

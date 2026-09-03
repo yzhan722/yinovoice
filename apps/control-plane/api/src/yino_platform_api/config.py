@@ -31,5 +31,9 @@ class PlatformSettings(BaseSettings):
     demo_operator_account: str = "demo"
     demo_operator_password: str = "demo123"
     demo_operator_tenant_id: str = "00000000-0000-0000-0000-000000000001"
+    # Optional platform administrator seeded alongside the demo operator when
+    # the user_accounts store is empty. Unset = no admin until one is created.
+    platform_admin_account: str | None = None
+    platform_admin_password: str | None = None
     auth_secret: str | None = None
 

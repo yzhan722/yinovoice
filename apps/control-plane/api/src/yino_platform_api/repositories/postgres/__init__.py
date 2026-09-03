@@ -1,6 +1,7 @@
 """PostgreSQL repository adapters."""
 
 from ..customer_services import CustomerServiceVersionConflict
+from .accounts import PostgresTenantRepository, PostgresUserAccountRepository
 from .appointments import PostgresAppointmentRepository
 from .call_records import PostgresCallRecordRepository
 from .callback_tasks import PostgresCallbackTaskRepository
@@ -25,5 +26,7 @@ __all__ = [
     "PostgresNotificationRepository",
     "PostgresPhoneNumberRepository",
     "PostgresSchedulingRepository",
+    "PostgresTenantRepository",
     "PostgresToolInvocationRepository",
+    "PostgresUserAccountRepository",
 ]

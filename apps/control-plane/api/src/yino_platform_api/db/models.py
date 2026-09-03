@@ -60,6 +60,52 @@ class Tenant(Base):
     )
 
 
+class UserAccountRow(Base):
+    """Console login accounts; one tenant per account, role decides console scope."""
+
+    __tablename__ = "user_accounts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id"],
+            ["tenants.id"],
+            name="user_accounts_tenant_fk",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "role IN ('platform_admin', 'tenant_operator')",
+            name="user_accounts_role_check",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'disabled')",
+            name="user_accounts_status_check",
+        ),
+        Index(
+            "user_accounts_account_lower_uq",
+            func.lower(text("account")),
+            unique=True,
+        ),
+        Index("user_accounts_tenant_idx", "tenant_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    account: Mapped[str] = mapped_column(String(80), nullable=False)
+    nickname: Mapped[str] = mapped_column(String(80), nullable=False)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'tenant_operator'")
+    )
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'active'")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class AgentTemplateVersion(Base):
     __tablename__ = "agent_template_versions"
     __table_args__ = (

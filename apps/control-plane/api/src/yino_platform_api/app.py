@@ -16,10 +16,17 @@ from .config import PlatformSettings
 from .db.engine import create_db_engine, create_session_factory
 from .db.seed import ensure_demo_seed
 from .dependencies import bind_auth_service
+from .domain.account import TenantView
 from .domain.customer_service import (
     DEMO_CUSTOMER_SERVICE_ID,
     DEMO_TENANT_ID,
     CustomerServiceInstance,
+)
+from .repositories.accounts import (
+    InMemoryTenantRepository,
+    InMemoryUserAccountRepository,
+    TenantRepository,
+    UserAccountRepository,
 )
 from .repositories.appointments import (
     AppointmentRepository,
@@ -64,7 +71,9 @@ from .repositories.postgres import (
     PostgresNotificationRepository,
     PostgresPhoneNumberRepository,
     PostgresSchedulingRepository,
+    PostgresTenantRepository,
     PostgresToolInvocationRepository,
+    PostgresUserAccountRepository,
 )
 from .repositories.scheduling import (
     InMemorySchedulingRepository,
@@ -74,6 +83,7 @@ from .repositories.tool_invocations import (
     InMemoryToolInvocationRepository,
     ToolInvocationRepository,
 )
+from .routes.admin import create_router as create_admin_router
 from .routes.appointments import create_router as create_appointment_router
 from .routes.auth import create_router as create_auth_router
 from .routes.call_records import create_router as create_call_record_router
@@ -122,6 +132,8 @@ def create_app(
     auth_service: AuthService | None = None,
     config_revision_repository: ConfigRevisionRepository | None = None,
     knowledge_repository: KnowledgeRepository | None = None,
+    user_account_repository: UserAccountRepository | None = None,
+    tenant_repository: TenantRepository | None = None,
     recording_dir: Path | str | None = None,
     call_recording_max_bytes: int | None = None,
     phone_lookup_token: str | None = None,
@@ -205,6 +217,26 @@ def create_app(
             knowledge_repository = PostgresKnowledgeRepository(sessions)
         else:
             knowledge_repository = InMemoryKnowledgeRepository()
+    if user_account_repository is None:
+        if sessions is not None:
+            user_account_repository = PostgresUserAccountRepository(sessions)
+        else:
+            user_account_repository = InMemoryUserAccountRepository()
+    if tenant_repository is None:
+        if sessions is not None:
+            tenant_repository = PostgresTenantRepository(sessions)
+        else:
+            tenant_repository = InMemoryTenantRepository(
+                [
+                    TenantView(
+                        id=DEMO_TENANT_ID,
+                        name="Demo Tenant",
+                        home_region="cn-mainland",
+                        status="active",
+                        created_at=datetime.now(UTC),
+                    )
+                ]
+            )
 
     egress_service = RecordingEgressService(
         sink_from_settings(
@@ -322,10 +354,14 @@ def create_app(
             account=settings.demo_operator_account,
             password=settings.demo_operator_password,
             tenant_id=UUID(settings.demo_operator_tenant_id),
+            users=user_account_repository,
+            admin_account=settings.platform_admin_account,
+            admin_password=settings.platform_admin_password,
         )
     bind_auth_service(auth_service)
 
     app.include_router(create_auth_router(auth_service))
+    app.include_router(create_admin_router(tenant_repository, auth_service.users))
     app.include_router(
         create_customer_service_router(
             repository,
