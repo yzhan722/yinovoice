@@ -9,6 +9,12 @@ from typing import Literal, cast
 from urllib.parse import urlsplit
 
 from .llm_providers import PROVIDER_KEYS, PROVIDERS, LlmSelection
+from .stt_providers import PROVIDER_KEYS as STT_PROVIDER_KEYS
+from .stt_providers import PROVIDERS as STT_PROVIDERS
+from .stt_providers import SttSelection
+from .tts_providers import PROVIDER_KEYS as TTS_PROVIDER_KEYS
+from .tts_providers import PROVIDERS as TTS_PROVIDERS
+from .tts_providers import TtsSelection, TtsTuning
 from .voice_ux_config import VoiceUxSettings
 
 ProviderMode = Literal["qwen-realtime", "pipeline"]
@@ -33,6 +39,8 @@ class VoiceSettings:
     fun_asr_model: str | None
     llm_model: str | None
     llm: LlmSelection | None
+    stt: SttSelection | None
+    tts: TtsSelection | None
     tts_model: str | None
     tts_voice: str | None
     language: str | None
@@ -123,12 +131,98 @@ class VoiceSettings:
                 api_key=api_key,
             )
 
+        def read_float(name: str) -> float | None:
+            raw = read_override(name)
+            if raw is None:
+                return None
+            try:
+                return float(raw)
+            except ValueError:
+                raise ConfigurationError(f"{name} must be a number") from None
+
+        def resolve_stt(language: str) -> SttSelection:
+            provider_key = (values.get("STT_PROVIDER") or "fun-asr").strip().lower()
+            if provider_key not in STT_PROVIDERS:
+                raise ConfigurationError(
+                    "STT_PROVIDER must be one of: " + ", ".join(STT_PROVIDER_KEYS)
+                )
+            provider = STT_PROVIDERS[provider_key]
+            model = read_override("STT_MODEL") or provider.default_model
+            api_key = read_override("STT_API_KEY")
+            if api_key is None:
+                for env_name in provider.api_key_envs:
+                    api_key = read_override(env_name)
+                    if api_key:
+                        break
+            if not api_key:
+                raise ConfigurationError(
+                    f"STT_PROVIDER={provider_key} needs STT_API_KEY or one of: "
+                    + ", ".join(provider.api_key_envs)
+                )
+            return SttSelection(
+                provider=provider_key,
+                model=model,
+                language=read_override("STT_LANGUAGE") or language,
+                api_key=api_key,
+                base_url=read_override("STT_BASE_URL"),
+            )
+
+        def resolve_tts() -> TtsSelection:
+            provider_key = (values.get("TTS_PROVIDER") or "openai").strip().lower()
+            if provider_key not in TTS_PROVIDERS:
+                raise ConfigurationError(
+                    "TTS_PROVIDER must be one of: " + ", ".join(TTS_PROVIDER_KEYS)
+                )
+            provider = TTS_PROVIDERS[provider_key]
+            model = read_override("TTS_MODEL") or provider.default_model
+            voice = read_override("TTS_VOICE") or provider.default_voice
+            api_key = read_override("TTS_API_KEY")
+            if api_key is None:
+                for env_name in provider.api_key_envs:
+                    api_key = read_override(env_name)
+                    if api_key:
+                        break
+            if not api_key:
+                raise ConfigurationError(
+                    f"TTS_PROVIDER={provider_key} needs TTS_API_KEY or one of: "
+                    + ", ".join(provider.api_key_envs)
+                )
+            if not voice:
+                raise ConfigurationError(
+                    f"TTS_VOICE is required for TTS_PROVIDER={provider_key}"
+                )
+            tuning = TtsTuning(
+                stability=read_float("TTS_STABILITY"),
+                similarity_boost=read_float("TTS_SIMILARITY_BOOST"),
+                style=read_float("TTS_STYLE"),
+                speed=read_float("TTS_SPEED"),
+                use_speaker_boost=(
+                    read_bool("TTS_USE_SPEAKER_BOOST", True)
+                    if "TTS_USE_SPEAKER_BOOST" in values
+                    else None
+                ),
+            )
+            if not provider.supports_tuning and tuning.as_kwargs():
+                raise ConfigurationError(
+                    f"TTS tuning (stability/style/...) is not supported by "
+                    f"TTS_PROVIDER={provider_key}"
+                )
+            return TtsSelection(
+                provider=provider_key,
+                model=model,
+                voice=voice,
+                api_key=api_key,
+                tuning=tuning,
+            )
+
         qwen_realtime_url: str | None = None
         dashscope_websocket_url: str | None = None
         openai_api_key: str | None = None
         fun_asr_model: str | None = None
         llm_model: str | None = None
         llm: LlmSelection | None = None
+        stt: SttSelection | None = None
+        tts: TtsSelection | None = None
         tts_model: str | None = None
         tts_voice: str | None = None
         language: str | None = None
@@ -143,15 +237,18 @@ class VoiceSettings:
             if parsed_realtime_url.scheme != "wss" or not parsed_realtime_url.netloc:
                 raise ConfigurationError("QWEN_REALTIME_URL must be a valid wss:// URL")
         else:
-            dashscope_websocket_url = read("DASHSCOPE_WEBSOCKET_URL")
             llm = resolve_llm()
             llm_model = llm.model
-            # TTS still runs on OpenAI; the LLM may now live elsewhere.
             openai_api_key = read("OPENAI_API_KEY")
-            fun_asr_model = read("FUN_ASR_MODEL", "fun-asr-realtime")
-            tts_model = read("TTS_MODEL", "gpt-4o-mini-tts")
-            tts_voice = read("TTS_VOICE", "ash")
             language = read("AGENT_LANGUAGE", "zh")
+            stt = resolve_stt(language)
+            tts = resolve_tts()
+            # Fun-ASR / OpenAI TTS keep their own settings so an existing
+            # deployment that sets none of the *_PROVIDER variables is unchanged.
+            dashscope_websocket_url = read("DASHSCOPE_WEBSOCKET_URL")
+            fun_asr_model = read("FUN_ASR_MODEL", "fun-asr-realtime")
+            tts_model = tts.model
+            tts_voice = tts.voice
 
         read_optional = read_optional_value
 
@@ -168,6 +265,8 @@ class VoiceSettings:
             fun_asr_model=fun_asr_model,
             llm_model=llm_model,
             llm=llm,
+            stt=stt,
+            tts=tts,
             tts_model=tts_model,
             tts_voice=tts_voice,
             language=language,

@@ -118,15 +118,111 @@ def build_providers(
 
     return ProviderBundle(
         mode="pipeline",
-        stt=stt_type(
-            api_key=settings.dashscope_api_key,
-            websocket_url=dashscope_websocket_url,
-            model=fun_asr_model,
-            language=language,
+        stt=build_stt(
+            settings,
+            fun_asr_type=stt_type,
+            fun_asr_kwargs={
+                "api_key": settings.dashscope_api_key,
+                "websocket_url": dashscope_websocket_url,
+                "model": fun_asr_model,
+                "language": language,
+            },
         ),
         llm=build_llm(settings, plugin=plugin),
-        tts=plugin.TTS(**tts_options),
+        tts=build_tts(settings, openai_plugin=plugin, openai_kwargs=tts_options),
     )
+
+
+def build_stt(
+    settings: VoiceSettings,
+    *,
+    fun_asr_type: Any,
+    fun_asr_kwargs: dict[str, Any],
+    plugins: Any | None = None,
+) -> Any:
+    """Build the recogniser for the configured STT vendor.
+
+    Deepgram's Flux models live on STTv2 rather than STT, which is why the
+    selection exposes ``uses_deepgram_v2``.
+    """
+    selection = settings.stt
+    if selection is None or selection.provider == "fun-asr":
+        return fun_asr_type(**fun_asr_kwargs)
+    if selection.provider == "openai":
+        module = plugins if plugins is not None else _import_plugin("openai")
+        return module.STT(
+            api_key=selection.api_key,
+            model=selection.model,
+            language=selection.language,
+            **({"base_url": selection.base_url} if selection.base_url else {}),
+        )
+    if selection.provider == "deepgram":
+        module = plugins if plugins is not None else _import_plugin("deepgram")
+        common: dict[str, Any] = {
+            "api_key": selection.api_key,
+            "model": selection.model,
+        }
+        if selection.base_url:
+            common["base_url"] = selection.base_url
+        if selection.uses_deepgram_v2:
+            return module.STTv2(language_hint=selection.language, **common)
+        return module.STT(language=selection.language, **common)
+    raise UnsupportedProviderConfiguration(
+        f"STT provider {selection.provider} has no builder"
+    )
+
+
+def build_tts(
+    settings: VoiceSettings,
+    *,
+    openai_plugin: Any,
+    openai_kwargs: dict[str, Any],
+    plugins: Any | None = None,
+) -> Any:
+    """Build the synthesiser for the configured TTS vendor.
+
+    ElevenLabs takes the legacy voice ids and tuning values unchanged, so an
+    imported assistant keeps the voice callers already recognise.
+    """
+    selection = settings.tts
+    if selection is None or selection.provider == "openai":
+        return openai_plugin.TTS(**openai_kwargs)
+    if selection.provider == "elevenlabs":
+        module = plugins if plugins is not None else _import_plugin("elevenlabs")
+        tuning = selection.tuning.as_kwargs()
+        return module.TTS(
+            api_key=selection.api_key,
+            model=selection.model,
+            voice_id=selection.voice,
+            **({"voice_settings": module.VoiceSettings(**tuning)} if tuning else {}),
+        )
+    if selection.provider == "cartesia":
+        module = plugins if plugins is not None else _import_plugin("cartesia")
+        return module.TTS(
+            api_key=selection.api_key,
+            model=selection.model,
+            voice=selection.voice,
+        )
+    if selection.provider == "dashscope":
+        # CosyVoice reaches DashScope through the Qwen path, not a plugin.
+        raise UnsupportedProviderConfiguration(
+            "TTS_PROVIDER=dashscope is served by qwen-realtime mode, not the pipeline"
+        )
+    raise UnsupportedProviderConfiguration(
+        f"TTS provider {selection.provider} has no builder"
+    )
+
+
+def _import_plugin(name: str) -> Any:
+    """Import a LiveKit plugin on demand with an actionable error."""
+    try:
+        module = __import__(f"livekit.plugins.{name}", fromlist=[name])
+    except ImportError as error:
+        raise UnsupportedProviderConfiguration(
+            f"livekit-plugins-{name} is not installed; "
+            f'install the runtime with the "overseas" extra'
+        ) from error
+    return module
 
 
 def build_llm(settings: VoiceSettings, *, plugin: Any) -> Any:
