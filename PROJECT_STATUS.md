@@ -1,5 +1,13 @@
 # PROJECT_STATUS
 
+## 2026-09-06 测试库演练、生产后端升级、可插拔 LLM
+
+- **stage1 测试库全流程演练通过**：该库原停在孤儿迁移 `20260818_0002`（早期迁移文件被改过 revision id）导致无法升级，备份后重建并升到 `20260903_0013`；从旧 MySQL 生成租户映射（6 租户 / 8 助手映射 / 5 未分配归 Demo / 6 操作员）并导出 819 通历史通话；导入后 15 助手→实例、819 通话、8240 条转写、43 个录音（93 MB，接口回放 200 + RIFF），导入的操作员登录只见本租户、跨租户与管理接口 403。
+- **生产后端升级完成（P0.2）**：`scripts/deploy_production_api.py` 只更新平台 API 源码 + 迁移 + 控制台密钥，**前端 dist 与承载实时通话的 voice-agent 未动**。`20260825_0011` → `20260903_0013`，路由 43 → 47，管理端点上线；`demo` 旧账号仍可用且越权 403；数据完好；**LiveKit token 签发 200 且 voice-agent 实际接受任务派发**（实时通话路径未受影响）。源码与数据库均有时间戳备份，回滚命令随脚本输出。管理员账号 `yino-admin`（口令仅在本地，未入库/未入仓）。
+- **紧急发现：Vapi 录音每天在丢**。Vapi 仅保留约 10 天通话，819 通历史中**只有 43 通（5%）录音可取回，776 个已永久丢失**（转写与摘要因旧库同步而完整保留，只丢音频）。旧库里的 `recordingUrl` 已全部失效（R2 预签名过期、`storage.vapi.ai` 域名不再解析），导入器改为优先走 Vapi `GET /call/{id}/mono-recording`。**P1.5 每日同步已从「可选」升级为必做**，直到 Phase 2 切流让新通话由 Yino 自己录音。
+- **可插拔 LLM 供应商（P3.2a）**：pipeline 模式的 LLM 可选 OpenAI / DeepSeek / Qwen(DashScope 兼容) / Zhipu GLM / Moonshot Kimi / MiniMax / SiliconFlow / OpenRouter / 自建 OpenAI 兼容端点，`LLM_PROVIDER` 选型 + `LLM_MODEL`/`LLM_BASE_URL`/`LLM_API_KEY` 覆盖；不配置时行为与原先一致。英文实时栈仍按决定先用 Qwen。voice-agent 419 passed、release gate PASS。
+- 未做（下一步）：P1.5 每日同步定时任务、生产正式导入（stage1 已验证流程）、P0.3 部署 monorepo 版 call-insights、生产前端切换、Phase 2 电话接入。
+
 ## 2026-09-03 Vapi 替代最终阶段：计划与首批推进
 
 - 计划：`docs/superpowers/plans/2026-09-03-vapi-replacement-final-phase.md`（Phase 0 基线 → Phase 1 控制台接管 → Phase 2 电话接入 → Phase 3 工具/运行时对齐 → Phase 4 切流下线；含完成定义 D1–D6、工作量、风险）。

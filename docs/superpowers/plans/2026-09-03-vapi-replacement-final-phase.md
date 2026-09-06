@@ -45,7 +45,7 @@
 ### Phase 0 — 基线加固（1–2 天）
 
 - [x] **P0.1 CI 覆盖 Postgres**：`api` job 增加 `postgres:17` service，单独一步以 `DATABASE_URL` 运行 `tests/test_db_migrations.py tests/test_postgres_*.py`；内存模式用例保持无 `DATABASE_URL`。
-- [ ] **P0.2 生产 Alembic 升到 head**（当前 `20260825_0011`，head 含 `call_records.usage` 与本计划新增迁移）。步骤：备份 → `alembic upgrade head` → `GET /health` → 回滚脚本为 `alembic downgrade <prev>`。
+- [x] **P0.2 生产 Alembic 升到 head**（2026-09-06 完成，`20260825_0011` → `20260903_0013`）。用 `scripts/deploy_production_api.py`：仅后端（平台 API 源码 + 迁移 + 控制台密钥），**不动前端 dist 与承载实时通话的 voice-agent**，所有既有路由保持向后兼容。先备份源码与 `pg_dump`，再升级、写 `AUTH_SECRET` 与管理员引导（SFTP 写入，不经命令行），重启后核验。结果：路由 43 → 47、管理端点上线（无 token 401）、`demo` 旧账号仍可用且越权 403、数据完好（8 实例 / 3 通话）、**LiveKit token 签发 200 且 voice-agent 实际接受了任务派发**。回滚命令随脚本输出。
 - [ ] **P0.3 部署 monorepo 版 call-insights** 到 `calls.yino.au`，替换旧独立仓库发布；平台 API 配置 `INSIGHTS_BASE_URL` / `INSIGHTS_INGEST_TOKEN`；为实例设置 `insights_profile`。
 - [ ] **P0.4 `-eng` 部署合流**：英文实例改由 P3.2 的运行时档位承载，撤销独立 fork 部署。
 
@@ -55,7 +55,7 @@
 - [ ] **P1.2 跨租户搬移实例**（降级为纠错工具，不在迁移关键路径）：`POST /api/v1/admin/instances/{id}/assign` 把实例迁到目标租户。**重新定位理由**：旧管理台需要"分配助手"是因为助手创建在 Vapi（无租户归属）后再挂给账号；Yino 的实例天生属于某个租户，P1.4 导入器又支持 `--tenant-map` 直接落到正确租户，P1.3 的租户视角切换让管理员能在任一租户内直接操作，因此搬移只在导入映射填错时才需要。实现代价不低：`(tenant_id, id)` 复合外键被 `phone_numbers` / `appointments` / `call_records` / `knowledge_documents` 等引用，须在单事务内级联改写并写审计。**建议**：等真正出现错配再做，届时优先考虑"删除重导"而非搬移。
 - [x] **P1.3 Web 管理员控制台**：`/user/platform-admin` 页面（租户列表与新建、操作员账号增删改与重置口令、启停）；菜单按 `meta.requiresRole` + `/auth/me` 返回的 `roles` 门控，租户操作员看不到该入口。**租户视角切换**：管理员可"进入租户视角"，此后所有租户页面（实例、通话、排期、知识库）都以该租户身份请求，页面顶部常驻提示条与"返回本租户"；`yinoHomeTenantId` 记录账号本租户，`yinoTenantId` 记录当前操作租户，租户操作员每次刷新都会被钉回自己的租户。未做：全局跨租户通话记录聚合视图（当前用视角切换逐租户查看）。
 - [x] **P1.4 Vapi 导入器** `scripts/import_vapi.py`（映射逻辑在 `yino_platform_api.vapi_import`）：助手 `systemPrompt` → `tenant_prompt`（超 8000 字的余量写为知识条目、不 apply）、`firstMessage` → 欢迎语、音色按语言映射默认 CosyVoice（可用 `--voice-map` 覆盖）、Vapi 工具在报告中列出；通话 → `POST /call-records`（方向、转写、`ended_reason`、时长、主叫/被叫；隐藏号码置空）；录音下载后经 `POST /call-records/{id}/recording` 存储（录音存储新增 wav/mp3 支持）；租户/用户经 `/admin/*` 创建，初始口令写入报告；`--dry-run`、状态文件幂等。**发现**：Vapi `/call` 列表只保留约两周（53 通），815 条历史通话须从旧 MySQL 导出，脚本提供 `--legacy-calls-json`（`aac_*` 行，DATETIME 按 JDBC `GMT+11` 换算为 UTC）。真实账户 dry-run：15 个助手全部可映射（3 个提示词溢出、11 个含工具）。
-- [ ] **P1.5 过渡期同步**（可选）：定时从 Vapi 拉取新通话进 Yino，直至 Phase 4 切流完成；旧录音代理由平台 `GET /call-records/{id}/recording` 替代。
+- [ ] **P1.5 过渡期同步（已从「可选」升级为紧急）**：Vapi 只保留约 10 天的通话，**819 通历史里只有 43 通（5%）的录音还能取回，776 个已永久丢失，且每天继续丢**（转写与摘要因旧库同步而完整保留，只丢音频）。在 Phase 4 切流完成前，必须每天跑一次 `scripts/import_vapi.py`（带 `--fetch`，不带 `--skip-recordings`）把新通话与录音落进 Yino。建议做成 systemd timer；这是目前唯一能止损的手段。
 - **验收**：9 个租户账号在新控制台登录，各自看到自己的实例与全部历史通话；管理员能创建租户/用户并分配实例；旧 Java 后端可停机。
 
 ### Phase 2 — 电话接入（LiveKit SIP + Twilio；工程 1–2 周 + 线路开通周期）
@@ -74,6 +74,7 @@
   - Runtime：`tool_protocol.ToolName` 增加 `transfer_call`；orchestrator 调用 `livekit.api.sip_service.transfer_sip_participant(room, sip_participant_identity, transfer_to="tel:+…")`（livekit-api 1.2.1 已提供）；转接前播报一句过渡语；失败回退为建回拨并继续对话；网页通道返回 `status=error`（不支持转接）。
   - Prompt：平台 Prompt 增加转接触发规则与标记示例。
   - 测试：runtime 用 fake SipService 覆盖成功/失败/非 SIP 通道；API 覆盖 `forwarding_phone` 缺失 → `status=error`。
+- [x] **P3.2a 可插拔 LLM 供应商**（2026-09-06）：`llm_providers.py` 注册表让 pipeline 模式的 LLM 可选 OpenAI / DeepSeek / Qwen(DashScope 兼容模式) / Zhipu GLM / Moonshot Kimi / MiniMax / SiliconFlow / OpenRouter / 自建 OpenAI 兼容端点。全部走同一套 chat 协议，只有 endpoint、model、key 不同。`LLM_PROVIDER` 选型，`LLM_MODEL` / `LLM_BASE_URL` / `LLM_API_KEY` 可覆盖，各家也读自己的 key 变量以便并存；不设 `LLM_PROVIDER` 时行为与原先完全一致。TTS 仍用 `OPENAI_API_KEY`。
 - [ ] **P3.2 按实例运行时档位与英文管线**：
   - 实例增加 `runtime_profile`（`qwen-realtime` 默认 / `pipeline-en`），API 在 LiveKit dispatch 时按档位选择 `agent_name`（每档位一个 worker 池，替代 `-eng` fork）。
   - Runtime pipeline 模式支持 `STT_PROVIDER=deepgram`、`TTS_PROVIDER=elevenlabs|openai`（`livekit-agents[deepgram,elevenlabs]` 插件），语言与音色来自实例配置；保留 Fun-ASR + OpenAI 组合。
@@ -105,6 +106,8 @@ Phase 1 与 Phase 2 可并行（前者纯代码，后者以运维为主）；Pha
 
 | 风险 | 对策 |
 |---|---|
+| **Vapi 录音每天继续丢失**（保留期约 10 天） | P1.5 每日同步（已升级为必做）；尽快推进 Phase 2 切流，让新通话直接由 Yino 录音 |
+| stage1 曾停在孤儿迁移版本 `20260818_0002` 而无法升级 | 已重建 stage1 库并升到 head；**教训**：迁移文件一旦发布不得改 revision id，生产库 `20260825_0011` 未受影响 |
 | 英文语音质量不及现有栈 | P3.2 双档位并存，盲测后再切；生产助手最后切流，随时回滚号码 |
 | `livekit-sip` / Egress 运维复杂度 | 同机部署 + systemd + runbook；`sip_preflight.py --probe` 纳入 release gate |
 | 雅加达 ↔ 澳洲媒体时延 | 约 100 ms 量级可接受；切流后监控 `RuntimeMetrics` 首响与打断延迟 |
@@ -117,4 +120,7 @@ Phase 1 与 Phase 2 可并行（前者纯代码，后者以运维为主）；Pha
 - 2026-09-03 P0.1 完成：CI `api` job 增加 Postgres service 与独立测试步骤。
 - 2026-09-03 P1.1 完成（API 侧）：`users` 表与迁移 `20260903_0013`、多账号登录、角色、管理员租户/用户接口、demo 账号引导播种、测试覆盖。Web 管理页留待 P1.3。
 - 2026-09-03 P1.4 完成：`scripts/import_vapi.py` + `yino_platform_api.vapi_import`，9 个用例（含端到端导入、录音存储、幂等重跑、dry-run）；真实 Vapi 账户只读 dry-run 通过。录音存储支持 wav/mp3。英文运行时先用 Qwen（P3.2 盲测不过再切 OpenAI Realtime 或 Deepgram+ElevenLabs 管线）。
+- 2026-09-06 stage1 测试库全流程演练通过（用户要求「先跑测试库」）：库因孤儿版本 `20260818_0002` 无法升级，备份后重建并升到 `20260903_0013`（20 表）；从旧 MySQL 生成租户映射（6 租户 / 8 助手映射 / 5 未分配归 Demo / 6 操作员）并导出 819 通历史通话；导入结果 15 助手→实例、819 通话、8240 条转写、43 个录音（93 MB，接口回放 200 + RIFF）、776 个录音状态 `none`；导入的操作员登录只见本租户，跨租户与管理接口 403。生产全程未受影响。
+- 2026-09-06 P0.2 生产升级完成并验证（详见上）。**发现并修复**：导入器原先依赖旧库里的 `recordingUrl`，实测这些链接已全部失效（R2 预签名过期、`storage.vapi.ai` 域名不再解析），改为优先走 Vapi `GET /call/{id}/mono-recording`；dry-run 不再要求管理员 token。
+- 2026-09-06 P3.2a 可插拔 LLM 供应商完成（详见上）。voice-agent 419 passed、release gate PASS。
 - 2026-09-03 P1.3 完成：`/user/platform-admin` 页面 + `PlatformAdminService` + 角色菜单门控 + 租户视角切换；前端 99 passed、typecheck 干净。浏览器验收：以 `root` 登录 → 新建租户（ap-southeast）→ 建操作员 → 进入租户视角 → 导入 7 个行业演示落在新租户；接口复核：新租户 7 个实例、Demo 仍 1 个、操作员登录只见本租户、跨租户与管理接口均 403。P1.2 降级为按需纠错工具（理由见上）。**Phase 1 控制台接管的关键路径已完成**，旧 Java 后台在完成 P0.2/P0.3 与正式导入后即可下线。
