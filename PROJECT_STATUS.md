@@ -1,5 +1,13 @@
 # PROJECT_STATUS
 
+## 2026-09-06（下半）Vapi 三层复刻、每日同步止损、跨租户搬移
+
+- **Vapi 三层可复刻性调研**（`docs/realtime/vapi-stack-parity.md`）：13 个助手中 **10 个可 1:1 复刻**——Deepgram `nova-2`/`nova-3`/`flux-general-en` 与 OpenAI `gpt-4o-transcribe`、GPT-4o/4.1、ElevenLabs `eleven_turbo_v2_5`/`eleven_flash_v2_5`，LiveKit 插件的模型名与参数名完全一致，`VoiceSettings` 正好是 Vapi 用的 stability/similarity_boost/style/speed 四项，**音色 ID 可直接复用**（同一供应商账户）；3 个用 Vapi 自有音色（Layla/Emma/Nico）的无对应物，需试听替换。Deepgram Flux 走 `STTv2` 而非 `STT`，代码按模型名自动选择。
+- **落地 STT/TTS 供应商注册表**（P3.2b）：`stt_providers.py`（Fun-ASR 默认 / Deepgram / OpenAI）、`tts_providers.py`（OpenAI 默认 / ElevenLabs 含调参 / Cartesia / CosyVoice）。海外插件收在 `overseas` extra，默认安装与 CI 不变；不设 `*_PROVIDER` 时行为与原先完全一致。voice-agent 438 passed、release gate PASS。
+- **每日同步上线，录音流失已止住**（P1.5）：`scripts/sync_vapi_daily.py` + systemd `yino-vapi-sync.timer`（每天 03:20，`Persistent=true` 宕机补跑，仅走官方录音接口）。首跑 44 通通话、44 个录音、0 失败。
+- **跨租户搬移实例**（P1.2，原判"按需"被现实推翻）：首次同步时本地已无租户映射，15 个助手全落进 Demo 租户。迁移 `20260906_0014` 给 13 个租户维度外键加 `ON UPDATE CASCADE`，`POST /api/v1/admin/instances/{id}/assign` 一条 UPDATE 即可带走通话/转写/知识/排期/号码。**CI 的 Postgres 步骤连续拦下两个只在真实数据库暴露的错误**：不存在的仓储方法，以及二层外键（`call_messages → call_records`、`appointments → service_offerings`）未级联；重建约束还差点丢掉原有的 `ON DELETE CASCADE`。
+- 未做（下一步）：**生产助手租户归属纠正**（重生成租户映射 → 建真实租户与操作员 → assign 迁出 Demo）、P0.3 部署 monorepo 版 call-insights、生产前端切换、Phase 2 电话接入（一旦完成，录音问题从根上解决）。
+
 ## 2026-09-06 测试库演练、生产后端升级、可插拔 LLM
 
 - **stage1 测试库全流程演练通过**：该库原停在孤儿迁移 `20260818_0002`（早期迁移文件被改过 revision id）导致无法升级，备份后重建并升到 `20260903_0013`；从旧 MySQL 生成租户映射（6 租户 / 8 助手映射 / 5 未分配归 Demo / 6 操作员）并导出 819 通历史通话；导入后 15 助手→实例、819 通话、8240 条转写、43 个录音（93 MB，接口回放 200 + RIFF），导入的操作员登录只见本租户、跨租户与管理接口 403。

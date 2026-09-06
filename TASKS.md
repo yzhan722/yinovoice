@@ -7,11 +7,13 @@
 - [ ] P0.3 部署 monorepo 版 call-insights，打通 Yino 通道
 - [ ] P0.4 `-eng` 独立部署合流到运行时档位（P3.2）
 - [x] P1.1 多租户账号与角色（`user_accounts`、scrypt、`platform_admin`/`tenant_operator`、`/api/v1/admin/*`、demo 账号引导播种）
-- [ ] P1.2 跨租户搬移实例（**降级为按需纠错工具**：导入器已支持 tenant-map，管理员可切换租户视角；复合外键级联改写代价高）
+- [x] P1.2 跨租户搬移实例（迁移 `20260906_0014` 给 13 个租户维度外键加 `ON UPDATE CASCADE`；`POST /api/v1/admin/instances/{id}/assign`）
 - [x] P1.3 Web 管理员控制台（`/user/platform-admin`：租户、操作员账号、租户视角切换；角色菜单门控）
 - [x] P1.4 Vapi 导入器（`scripts/import_vapi.py`：助手→实例、通话→call_records、录音存储、租户/用户；dry-run、幂等；旧 MySQL 行导入历史通话）
-- [ ] **P1.5 过渡期 Vapi 通话同步（紧急，非可选）**：Vapi 仅保留约 10 天，819 通历史仅 43 通录音可取回、776 个已永久丢失且每天继续丢；需每日跑 `scripts/import_vapi.py --fetch`（做成 systemd timer）
+- [x] P1.5 过渡期 Vapi 每日同步（`scripts/sync_vapi_daily.py` + `yino-vapi-sync.timer`，首跑 44 通 / 44 录音 / 0 失败；录音流失已止住）
 - [x] P3.2a 可插拔 LLM 供应商（OpenAI / DeepSeek / Qwen / GLM / Kimi / MiniMax / SiliconFlow / OpenRouter / 自建）
+- [x] P3.2b 可插拔 STT / TTS 供应商（Deepgram 含 Flux / OpenAI transcribe；ElevenLabs 含四项调参 / Cartesia）；对照见 `docs/realtime/vapi-stack-parity.md`
+- [ ] 生产助手租户归属纠正：重生成租户映射 → 建真实租户与操作员 → 用 assign 接口把 15 个助手迁出 Demo
 - [ ] P2.1–P2.5 LiveKit SIP + Twilio trunk 落地、`LIVE_SIP_E2E_PASS`、SIP 录音
 - [ ] P3.1 `transfer_call` 工具（API + runtime `transfer_sip_participant`）
 - [ ] P3.2 按实例运行时档位 + 英文管线（Deepgram / ElevenLabs 插件）+ 盲测
