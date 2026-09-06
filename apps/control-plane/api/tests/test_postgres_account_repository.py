@@ -13,7 +13,10 @@ import pytest
 from yino_platform_api.db.engine import create_db_engine, create_session_factory
 from yino_platform_api.db.seed import ensure_demo_seed
 from yino_platform_api.domain.account import TenantCreate, UserAccountCreate
-from yino_platform_api.domain.customer_service import DEMO_TENANT_ID
+from yino_platform_api.domain.customer_service import (
+    DEMO_CUSTOMER_SERVICE_ID,
+    DEMO_TENANT_ID,
+)
 from yino_platform_api.repositories.accounts import AccountConflict, TenantConflict
 from yino_platform_api.repositories.postgres.accounts import (
     PostgresTenantRepository,
@@ -50,6 +53,76 @@ async def _prepare() -> tuple[
         PostgresTenantRepository(sessions),
         engine,
     )
+
+
+@pytest.mark.asyncio
+async def test_reassigning_an_instance_carries_its_child_rows() -> None:
+    """Migration 20260906_0014 makes the instance foreign keys cascade."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from yino_platform_api.domain.call_record import CallRecordCreate
+    from yino_platform_api.repositories.postgres.call_records import (
+        PostgresCallRecordRepository,
+    )
+    from yino_platform_api.repositories.postgres.customer_services import (
+        PostgresCustomerServiceRepository,
+    )
+
+    users, tenants, engine = await _prepare()
+    sessions = users._sessions  # same factory, already migrated and seeded
+    services = PostgresCustomerServiceRepository(sessions)
+    calls = PostgresCallRecordRepository(sessions)
+    try:
+        target = await tenants.create(
+            TenantCreate(id=uuid4(), name="Move Target", home_region="ap-southeast")
+        )
+        started = datetime.now(UTC)
+        record = await calls.create(
+            DEMO_TENANT_ID,
+            CallRecordCreate(
+                customer_service_id=DEMO_CUSTOMER_SERVICE_ID,
+                room_name=f"move-{uuid4().hex[:8]}",
+                status="completed",
+                started_at=started,
+                ended_at=started,
+                duration_sec=1,
+                direction="web",
+                messages=[{"role": "user", "text": "hello", "sequence": 0}],
+            ),
+        )
+
+        moved = await services.reassign_tenant(
+            DEMO_CUSTOMER_SERVICE_ID, DEMO_TENANT_ID, target.id
+        )
+        assert moved is not None
+        assert moved.tenant_id == target.id
+
+        async with sessions() as session:
+            call_tenant = await session.scalar(
+                text("select tenant_id from call_records where id = :i").bindparams(
+                    i=record.id
+                )
+            )
+            assert call_tenant == target.id
+            knowledge = await session.scalar(
+                text(
+                    "select count(*) from knowledge_documents "
+                    "where instance_id = :i and tenant_id <> :t"
+                ).bindparams(i=DEMO_CUSTOMER_SERVICE_ID, t=target.id)
+            )
+            assert knowledge == 0
+        assert await services.get(DEMO_CUSTOMER_SERVICE_ID, DEMO_TENANT_ID) is None
+        assert await services.get(DEMO_CUSTOMER_SERVICE_ID, target.id) is not None
+
+        # Put it back so repeated runs start from the seeded state.
+        await services.reassign_tenant(
+            DEMO_CUSTOMER_SERVICE_ID, target.id, DEMO_TENANT_ID
+        )
+        await calls.hard_delete(record.id, DEMO_TENANT_ID)
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

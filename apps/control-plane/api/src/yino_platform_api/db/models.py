@@ -55,9 +55,7 @@ class Tenant(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    instances: Mapped[list[VoiceAgentInstance]] = relationship(
-        back_populates="tenant"
-    )
+    instances: Mapped[list[VoiceAgentInstance]] = relationship(back_populates="tenant")
 
 
 class UserAccountRow(Base):
@@ -235,6 +233,7 @@ class CallRecordRow(Base):
             ["tenant_id", "voice_agent_instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="call_records_instance_fkey",
+            onupdate="CASCADE",
         ),
         Index(
             "call_records_tenant_created_idx",
@@ -256,9 +255,7 @@ class CallRecordRow(Base):
             "tenant_id",
             "room_name",
             unique=True,
-            postgresql_where=text(
-                "status = 'in_progress' AND deleted_at IS NULL"
-            ),
+            postgresql_where=text("status = 'in_progress' AND deleted_at IS NULL"),
         ),
     )
 
@@ -368,6 +365,7 @@ class AppointmentRow(Base):
             ["tenant_id", "voice_agent_instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="appointments_instance_fkey",
+            onupdate="CASCADE",
         ),
         Index("appointments_tenant_slot_idx", "tenant_id", "slot_start"),
         Index("appointments_tenant_status_idx", "tenant_id", "status"),
@@ -395,16 +393,12 @@ class AppointmentRow(Base):
     slot_start: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
-    slot_end: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    slot_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'manual'")
     )
-    notes: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default=text("''")
-    )
+    notes: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -429,6 +423,7 @@ class CallbackTaskRow(Base):
             ["tenant_id", "voice_agent_instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="callback_tasks_instance_fkey",
+            onupdate="CASCADE",
         ),
         Index(
             "callback_tasks_tenant_status_created_idx",
@@ -476,6 +471,7 @@ class PhoneNumberRow(Base):
             ["tenant_id", "voice_agent_instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="phone_numbers_instance_fkey",
+            onupdate="CASCADE",
         ),
         Index("phone_numbers_tenant_created_idx", "tenant_id", "created_at"),
     )
@@ -518,6 +514,7 @@ class ServiceOfferingRow(Base):
             ["tenant_id", "voice_agent_instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="service_offerings_instance_fkey",
+            onupdate="CASCADE",
         ),
         Index(
             "service_offerings_tenant_instance_idx",
@@ -574,6 +571,7 @@ class SchedulingProfileRow(Base):
             ["tenant_id", "voice_agent_instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="scheduling_profiles_instance_fkey",
+            onupdate="CASCADE",
         ),
     )
 
@@ -607,6 +605,7 @@ class BusinessHoursRow(Base):
             ["tenant_id", "voice_agent_instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="business_hours_instance_fkey",
+            onupdate="CASCADE",
         ),
         Index(
             "business_hours_tenant_instance_idx",
@@ -632,13 +631,12 @@ class BusinessHoursRow(Base):
 class ScheduleExceptionRow(Base):
     __tablename__ = "schedule_exceptions"
     __table_args__ = (
-        UniqueConstraint(
-            "tenant_id", "id", name="schedule_exceptions_tenant_id_uidx"
-        ),
+        UniqueConstraint("tenant_id", "id", name="schedule_exceptions_tenant_id_uidx"),
         ForeignKeyConstraint(
             ["tenant_id", "voice_agent_instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="schedule_exceptions_instance_fkey",
+            onupdate="CASCADE",
         ),
         Index(
             "schedule_exceptions_tenant_instance_date_idx",
@@ -685,6 +683,7 @@ class ToolInvocationRow(Base):
             ["tenant_id", "voice_agent_instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="tool_invocations_instance_fkey",
+            onupdate="CASCADE",
         ),
         Index(
             "tool_invocations_tenant_session_idx",
@@ -822,6 +821,7 @@ class InstanceConfigRevisionRow(Base):
             ["tenant_id", "instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="instance_config_revisions_instance_fkey",
+            onupdate="CASCADE",
         ),
         Index(
             "instance_config_revisions_instance_idx",
@@ -854,6 +854,7 @@ class KnowledgeDocumentRow(Base):
             ["tenant_id", "instance_id"],
             ["voice_agent_instances.tenant_id", "voice_agent_instances.id"],
             name="knowledge_documents_instance_fkey",
+            onupdate="CASCADE",
         ),
         Index(
             "knowledge_documents_instance_idx",

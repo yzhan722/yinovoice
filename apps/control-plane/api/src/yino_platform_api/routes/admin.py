@@ -5,6 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel, ConfigDict
 
 from ..dependencies import PlatformAdmin
 from ..domain.account import (
@@ -17,18 +18,27 @@ from ..domain.account import (
     UserAccountCreate,
     UserAccountPage,
 )
+from ..domain.customer_service import CustomerServiceInstance
 from ..repositories.accounts import (
     AccountConflict,
     TenantConflict,
     TenantRepository,
     UserAccountRepository,
 )
+from ..repositories.customer_services import CustomerServiceRepository
 from ..services.passwords import hash_password
+
+
+class InstanceAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
 
 
 def create_router(
     tenants: TenantRepository,
     users: UserAccountRepository,
+    instances: CustomerServiceRepository | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1/admin")
 
@@ -97,5 +107,43 @@ def create_router(
                 status_code=status.HTTP_404_NOT_FOUND, detail="user not found"
             )
         return updated
+
+    @router.post(
+        "/instances/{instance_id}/assign",
+        response_model=CustomerServiceInstance,
+    )
+    async def assign_instance(
+        instance_id: UUID, payload: InstanceAssignment, _: PlatformAdmin
+    ) -> CustomerServiceInstance:
+        """Move an instance to another tenant, taking its data with it.
+
+        Used when an import placed an assistant under the wrong tenant. Calls,
+        transcripts, knowledge, schedules and numbers follow the instance
+        because their foreign keys cascade on update.
+        """
+        if instances is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="instance assignment is unavailable",
+            )
+        current = await instances.find_any_tenant(instance_id)
+        if current is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="instance not found"
+            )
+        if await tenants.get(payload.tenant_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="tenant not found"
+            )
+        if current.tenant_id == payload.tenant_id:
+            return current
+        moved = await instances.reassign_tenant(
+            instance_id, current.tenant_id, payload.tenant_id
+        )
+        if moved is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="instance moved meanwhile"
+            )
+        return moved
 
     return router

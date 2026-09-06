@@ -54,14 +54,22 @@ class CustomerServiceRepository(Protocol):
         self, instance_id: UUID, tenant_id: UUID
     ) -> CustomerServiceInstance | None: ...
 
+    async def find_any_tenant(
+        self, instance_id: UUID
+    ) -> CustomerServiceInstance | None:
+        """Locate an instance without knowing its tenant (platform admin only)."""
+        ...
+
+    async def reassign_tenant(
+        self, instance_id: UUID, from_tenant_id: UUID, to_tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        """Move an instance and everything scoped to it to another tenant."""
+        ...
+
 
 class InMemoryCustomerServiceRepository:
-    def __init__(
-        self, instances: Iterable[CustomerServiceInstance] = ()
-    ) -> None:
-        self._instances = {
-            (item.tenant_id, item.id): item for item in instances
-        }
+    def __init__(self, instances: Iterable[CustomerServiceInstance] = ()) -> None:
+        self._instances = {(item.tenant_id, item.id): item for item in instances}
 
     async def get_including_deleted(
         self, instance_id: UUID, tenant_id: UUID
@@ -96,9 +104,7 @@ class InMemoryCustomerServiceRepository:
         )
         return items[offset : offset + limit], len(items)
 
-    async def save(
-        self, instance: CustomerServiceInstance
-    ) -> CustomerServiceInstance:
+    async def save(self, instance: CustomerServiceInstance) -> CustomerServiceInstance:
         self._instances[(instance.tenant_id, instance.id)] = instance
         return instance
 
@@ -118,9 +124,7 @@ class InMemoryCustomerServiceRepository:
         if instance is None:
             return None
         if instance.deleted_at is None:
-            instance = instance.model_copy(
-                update={"deleted_at": datetime.now(UTC)}
-            )
+            instance = instance.model_copy(update={"deleted_at": datetime.now(UTC)})
             self._instances[(tenant_id, instance_id)] = instance
         return instance
 
@@ -144,3 +148,21 @@ class InMemoryCustomerServiceRepository:
             return None
         del self._instances[key]
         return instance
+
+    async def find_any_tenant(
+        self, instance_id: UUID
+    ) -> CustomerServiceInstance | None:
+        for (_tenant_id, item_id), instance in self._instances.items():
+            if item_id == instance_id:
+                return instance
+        return None
+
+    async def reassign_tenant(
+        self, instance_id: UUID, from_tenant_id: UUID, to_tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        instance = self._instances.pop((from_tenant_id, instance_id), None)
+        if instance is None:
+            return None
+        moved = instance.model_copy(update={"tenant_id": to_tenant_id})
+        self._instances[(to_tenant_id, instance_id)] = moved
+        return moved

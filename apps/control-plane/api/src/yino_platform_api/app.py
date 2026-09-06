@@ -361,7 +361,9 @@ def create_app(
     bind_auth_service(auth_service)
 
     app.include_router(create_auth_router(auth_service))
-    app.include_router(create_admin_router(tenant_repository, auth_service.users))
+    app.include_router(
+        create_admin_router(tenant_repository, auth_service.users, repository)
+    )
     app.include_router(
         create_customer_service_router(
             repository,

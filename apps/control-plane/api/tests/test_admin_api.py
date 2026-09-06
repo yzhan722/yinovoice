@@ -248,6 +248,79 @@ def test_password_reset_and_disable() -> None:
     )
 
 
+def test_admin_moves_an_instance_to_another_tenant() -> None:
+    client = _client()
+    admin = _login(client, "root", "root-secret")
+    instance_id = "00000000-0000-0000-0000-000000000101"
+    target = client.post(
+        "/api/v1/admin/tenants",
+        headers=_bearer(admin),
+        json={"id": "00000000-0000-0000-0000-000000000003", "name": "Clinic C"},
+    ).json()["id"]
+
+    moved = client.post(
+        f"/api/v1/admin/instances/{instance_id}/assign",
+        headers=_bearer(admin),
+        json={"tenant_id": target},
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["tenant_id"] == target
+
+    assert (
+        client.get(
+            "/api/v1/customer-services", headers={"X-Tenant-ID": str(DEMO_TENANT_ID)}
+        ).json()["total"]
+        == 0
+    )
+    assert (
+        client.get("/api/v1/customer-services", headers={"X-Tenant-ID": target}).json()[
+            "total"
+        ]
+        == 1
+    )
+
+    # Idempotent: assigning to the tenant it already belongs to is a no-op.
+    again = client.post(
+        f"/api/v1/admin/instances/{instance_id}/assign",
+        headers=_bearer(admin),
+        json={"tenant_id": target},
+    )
+    assert again.status_code == 200
+    assert again.json()["tenant_id"] == target
+
+
+def test_assign_rejects_unknown_instance_tenant_and_non_admins() -> None:
+    client = _client()
+    admin = _login(client, "root", "root-secret")
+    operator = _login(client, "demo", "demo123")
+    instance_id = "00000000-0000-0000-0000-000000000101"
+
+    assert (
+        client.post(
+            "/api/v1/admin/instances/00000000-0000-0000-0000-0000000009ff/assign",
+            headers=_bearer(admin),
+            json={"tenant_id": str(DEMO_TENANT_ID)},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            f"/api/v1/admin/instances/{instance_id}/assign",
+            headers=_bearer(admin),
+            json={"tenant_id": "00000000-0000-0000-0000-0000000009ff"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            f"/api/v1/admin/instances/{instance_id}/assign",
+            headers=_bearer(operator),
+            json={"tenant_id": str(DEMO_TENANT_ID)},
+        ).status_code
+        == 403
+    )
+
+
 def test_legacy_token_without_role_is_treated_as_tenant_operator() -> None:
     client = _client()
     payload = json.dumps(

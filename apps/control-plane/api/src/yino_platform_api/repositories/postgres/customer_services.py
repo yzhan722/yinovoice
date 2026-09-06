@@ -80,9 +80,7 @@ class PostgresCustomerServiceRepository:
             if not include_deleted:
                 filters.append(VoiceAgentInstance.deleted_at.is_(None))
             total = await session.scalar(
-                select(func.count())
-                .select_from(VoiceAgentInstance)
-                .where(*filters)
+                select(func.count()).select_from(VoiceAgentInstance).where(*filters)
             )
             rows = (
                 await session.scalars(
@@ -98,9 +96,7 @@ class PostgresCustomerServiceRepository:
             ).all()
             return [_to_domain(row) for row in rows], int(total or 0)
 
-    async def save(
-        self, instance: CustomerServiceInstance
-    ) -> CustomerServiceInstance:
+    async def save(self, instance: CustomerServiceInstance) -> CustomerServiceInstance:
         async with self._sessions() as session:
             if instance.version < 1:
                 raise CustomerServiceVersionConflict()
@@ -254,3 +250,40 @@ class PostgresCustomerServiceRepository:
             )
             await session.commit()
             return instance
+
+    async def find_any_tenant(
+        self, instance_id: UUID
+    ) -> CustomerServiceInstance | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(VoiceAgentInstance).where(VoiceAgentInstance.id == instance_id)
+            )
+            return _to_domain(row) if row is not None else None
+
+    async def reassign_tenant(
+        self, instance_id: UUID, from_tenant_id: UUID, to_tenant_id: UUID
+    ) -> CustomerServiceInstance | None:
+        """Move the instance; child rows follow via ON UPDATE CASCADE.
+
+        Migration 20260906_0014 made every (tenant_id, instance_id) foreign key
+        cascade on update, so calls, transcripts, knowledge, schedules and
+        numbers move with the instance inside this single statement.
+        """
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(VoiceAgentInstance).where(
+                    VoiceAgentInstance.tenant_id == from_tenant_id,
+                    VoiceAgentInstance.id == instance_id,
+                )
+            )
+            if row is None:
+                return None
+            row.tenant_id = to_tenant_id
+            row.updated_at = datetime.now(UTC)
+            try:
+                await session.commit()
+            except IntegrityError as error:
+                await session.rollback()
+                raise CustomerServiceAlreadyExists() from error
+            await session.refresh(row)
+            return _to_domain(row)
