@@ -77,9 +77,9 @@ def build_providers(
     dashscope_websocket_url = _pipeline_value(
         settings.dashscope_websocket_url, "DASHSCOPE_WEBSOCKET_URL"
     )
+    # TTS stays on OpenAI; the LLM vendor is resolved separately in build_llm.
     openai_api_key = _pipeline_value(settings.openai_api_key, "OPENAI_API_KEY")
     fun_asr_model = _pipeline_value(settings.fun_asr_model, "FUN_ASR_MODEL")
-    llm_model = _pipeline_value(settings.llm_model, "LLM_MODEL")
     tts_model = _pipeline_value(settings.tts_model, "TTS_MODEL")
     tts_voice = _pipeline_value(settings.tts_voice, "TTS_VOICE")
     language = _pipeline_value(settings.language, "AGENT_LANGUAGE")
@@ -124,9 +124,28 @@ def build_providers(
             model=fun_asr_model,
             language=language,
         ),
-        llm=plugin.responses.LLM(
-            api_key=openai_api_key,
-            model=llm_model,
-        ),
+        llm=build_llm(settings, plugin=plugin),
         tts=plugin.TTS(**tts_options),
+    )
+
+
+def build_llm(settings: VoiceSettings, *, plugin: Any) -> Any:
+    """Build the pipeline LLM client for the configured provider.
+
+    Every registry provider speaks the OpenAI chat protocol, so non-OpenAI
+    vendors are reached through the chat-completions client with base_url set.
+    OpenAI itself keeps the Responses client it has always used.
+    """
+    selection = settings.llm
+    if selection is None:
+        return plugin.responses.LLM(
+            api_key=_pipeline_value(settings.openai_api_key, "OPENAI_API_KEY"),
+            model=_pipeline_value(settings.llm_model, "LLM_MODEL"),
+        )
+    if selection.base_url is None:
+        return plugin.responses.LLM(api_key=selection.api_key, model=selection.model)
+    return plugin.LLM(
+        api_key=selection.api_key,
+        model=selection.model,
+        base_url=selection.base_url,
     )
