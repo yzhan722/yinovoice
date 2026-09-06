@@ -4,6 +4,7 @@ import {
   clearStoredTenantId,
   platformApiBase,
   readStoredUserToken,
+  rememberSessionTenant,
   storeTenantId,
 } from './platform/platformSession';
 
@@ -53,7 +54,9 @@ export class UserBasicService {
       throw new Error('登录失败');
     }
     const body = await response.json();
+    // A fresh login always starts in the account's own tenant.
     storeTenantId(body.tenant_id);
+    rememberSessionTenant(body.tenant_id, []);
     return body;
   }
 
@@ -69,7 +72,7 @@ export class UserBasicService {
       throw new Error('登录已失效');
     }
     const body = await response.json();
-    storeTenantId(body.tenant_id);
+    rememberSessionTenant(body.tenant_id, body.roles || []);
     return {
       userAccount: body.userAccount || body.account,
       userNickname: body.userNickname || body.account,

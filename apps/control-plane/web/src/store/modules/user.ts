@@ -70,6 +70,7 @@ export const useUserStore = defineStore('user', {
             this.userAccount = '';
             sessionStorage.removeItem('userToken');
             sessionStorage.removeItem('yinoTenantId');
+            sessionStorage.removeItem('yinoHomeTenantId');
         },
         /** 请求 profile 接口校验用户 token 是否有效，并拉取用户信息（供路由守卫用） */
         async getUserProfile() {

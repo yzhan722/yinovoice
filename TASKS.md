@@ -7,8 +7,8 @@
 - [ ] P0.3 部署 monorepo 版 call-insights，打通 Yino 通道
 - [ ] P0.4 `-eng` 独立部署合流到运行时档位（P3.2）
 - [x] P1.1 多租户账号与角色（`user_accounts`、scrypt、`platform_admin`/`tenant_operator`、`/api/v1/admin/*`、demo 账号引导播种）
-- [ ] P1.2 实例归属与分配接口（复合外键同步迁移）
-- [ ] P1.3 Web 管理员控制台（租户/用户/实例分配/全局通话）
+- [ ] P1.2 跨租户搬移实例（**降级为按需纠错工具**：导入器已支持 tenant-map，管理员可切换租户视角；复合外键级联改写代价高）
+- [x] P1.3 Web 管理员控制台（`/user/platform-admin`：租户、操作员账号、租户视角切换；角色菜单门控）
 - [x] P1.4 Vapi 导入器（`scripts/import_vapi.py`：助手→实例、通话→call_records、录音存储、租户/用户；dry-run、幂等；旧 MySQL 行导入历史通话）
 - [ ] P1.5 过渡期 Vapi 通话同步（可选）
 - [ ] P2.1–P2.5 LiveKit SIP + Twilio trunk 落地、`LIVE_SIP_E2E_PASS`、SIP 录音

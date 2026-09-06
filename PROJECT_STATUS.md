@@ -6,8 +6,10 @@
 - P0.1 完成：CI `api` job 增加 Postgres 17 service，Alembic 全量升级与 17 个 Postgres 用例在 CI 真实执行（此前一直被跳过）。
 - P1.1 完成（API 侧）：`user_accounts` 表（迁移 `20260903_0013`）、scrypt 口令、角色 `platform_admin` / `tenant_operator`、`/api/v1/admin/tenants` 与 `/api/v1/admin/users`（列表/创建/重置口令/启停）；demo 账号与可选 `PLATFORM_ADMIN_ACCOUNT` 在空表时引导播种，`demo / demo123` 与既有测试不受影响；管理员可用 `X-Tenant-ID` 代表任一租户，租户操作员越权仍 403；旧 token 按 `tenant_operator` 兼容。API 186 passed（+6），Postgres 步骤 17 passed。
 - P1.4 完成：`scripts/import_vapi.py`（映射在 `yino_platform_api.vapi_import`）把 Vapi 助手/通话/录音与租户账号导入 Yino；dry-run 与状态文件幂等；录音存储新增 wav/mp3。真实账户只读 dry-run：15 个助手可映射；Vapi 列表接口只保留近两周通话，历史 815 通需从旧 MySQL 导出（`--legacy-calls-json`）。API 195 passed。
+- P1.3 完成：`/user/platform-admin` 页面（租户新建/列表、操作员账号创建/重置口令/启停）、`meta.requiresRole` + `/auth/me` 角色菜单门控、管理员「进入租户视角」（`yinoHomeTenantId` 存账号本租户、`yinoTenantId` 存当前操作租户，操作员每次刷新钉回本租户）。浏览器验收：新建租户 → 建操作员 → 切视角 → 导入 7 个行业演示落在新租户；接口复核租户隔离与 403 行为。Web 99 passed + typecheck。
+- **Phase 1 控制台接管关键路径完成**：多租户账号、管理员控制台、Vapi 导入器齐备，旧 Java 后台在 P0.2/P0.3 与正式导入后可下线。P1.2 跨租户搬移实例降级为按需纠错工具（导入器已可按 tenant-map 直接落位）。
 - 运行时英文栈决策：先用 Qwen Realtime，P3.2 盲测未达标再切换（备选：OpenAI Realtime 语音到语音；或 Deepgram + ElevenLabs 管线复刻现有栈）。
-- 未做（下一步）：P0.2 生产 Alembic 升级、P1.2 实例分配、P1.3 Web 管理页、正式执行导入（需管理员 token 与租户映射文件）。
+- 未做（下一步）：P0.2 生产 Alembic 升级 + 配置 `PLATFORM_ADMIN_ACCOUNT`、P0.3 部署 monorepo 版 call-insights、正式执行导入（需管理员 token 与租户映射文件）、Phase 2 电话接入。
 
 ## 2026-09-03 Integrator：A / B 合入 main 与需求对照验收
 

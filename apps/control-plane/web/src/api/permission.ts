@@ -241,6 +241,29 @@ export function getMenuList(role?: 'admin' | 'user') {
       ],
     });
 
+    // Platform operator console: tenants, operator accounts, acting-tenant switch.
+    menuList.push({
+      path: '/user/platform-admin',
+      component: 'LAYOUT',
+      redirect: '/user/platform-admin/index',
+      name: 'PlatformAdmin',
+      meta: {
+        single: true,
+        title: { zh_CN: '平台管理', en_US: 'Platform Admin' },
+        icon: 'usergroup',
+        orderNo: 20,
+        requiresRole: 'platform_admin',
+      },
+      children: [
+        {
+          path: 'index',
+          name: 'PlatformAdminIndex',
+          component: 'user/platform-admin/index',
+          meta: { title: { zh_CN: '平台管理', en_US: 'Platform Admin' } },
+        },
+      ],
+    });
+
     // Learnova B3 mobile companion screens
     menuList.push({
       path: '/user/planner',
@@ -421,11 +444,18 @@ export function getMenuList(role?: 'admin' | 'user') {
   });
 }
 
-//@ts-ignore
-function filterMenusByPermission(userStore, menus) {
+function hasRequiredRole(userStore: any, menu: any) {
+  const required = menu?.meta?.requiresRole;
+  if (!required) return true;
+  const roles = userStore?.roles || userStore?.userInfo?.roles || [];
+  return Array.isArray(roles) && roles.includes(required);
+}
+
+function filterMenusByPermission(userStore: any, menus: any): any[] {
   if (!Array.isArray(menus)) return [];
 
   return menus
+    .filter((menu) => hasRequiredRole(userStore, menu))
     .map((menu) => {
       const newMenu = { ...menu, meta: { ...menu.meta } };
       if (typeof newMenu.meta.single !== 'boolean') {
