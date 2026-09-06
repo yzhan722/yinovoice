@@ -51,7 +51,6 @@ from pathlib import Path
 from uuid import UUID
 
 import httpx
-
 from yino_platform_api.vapi_import import (
     ImportState,
     VapiImporter,
@@ -101,21 +100,47 @@ def fetch_calls(vapi: httpx.Client, *, page_size: int = 100) -> list[dict]:
     return calls
 
 
+def _audio_mime(response: httpx.Response, url: str | None) -> str:
+    mime = response.headers.get("content-type", "").split(";")[0].strip()
+    if mime.startswith("audio/"):
+        return mime
+    return "audio/mpeg" if (url or "").lower().endswith(".mp3") else "audio/wav"
+
+
 def make_downloader(vapi_key: str | None):
-    def download(url: str) -> tuple[bytes, str]:
-        with httpx.Client(timeout=120, follow_redirects=True) as client:
-            response = client.get(url)
-            if response.status_code in (401, 403) and vapi_key:
-                response = client.get(
-                    url, headers={"Authorization": f"Bearer {vapi_key}"}
+    """Fetch call audio, preferring Vapi's recording route over stored URLs.
+
+    Stored recordingUrl values rot: R2 presigned links expire and the old
+    storage.vapi.ai host no longer resolves. GET /call/{id}/mono-recording
+    works while Vapi still retains the call (about 10 days), so try it first
+    and fall back to whatever URL the export carried.
+    """
+
+    def download(call_id: str, url: str | None) -> tuple[bytes, str]:
+        errors: list[str] = []
+        with httpx.Client(timeout=180, follow_redirects=True) as client:
+            attempts = []
+            if vapi_key and call_id:
+                attempts.append(
+                    (
+                        f"{VAPI_BASE}/call/{call_id}/mono-recording",
+                        {"Authorization": f"Bearer {vapi_key}"},
+                        "api",
+                    )
                 )
-            response.raise_for_status()
-            mime = (
-                response.headers.get("content-type", "audio/wav").split(";")[0].strip()
-            )
-            if not mime.startswith("audio/"):
-                mime = "audio/mpeg" if url.lower().endswith(".mp3") else "audio/wav"
-            return response.content, mime
+            if url:
+                headers = {"Authorization": f"Bearer {vapi_key}"} if vapi_key else {}
+                attempts.append((url, headers, "url"))
+            for target, headers, label in attempts:
+                try:
+                    response = client.get(target, headers=headers)
+                except httpx.HTTPError as error:
+                    errors.append(f"{label} {type(error).__name__}")
+                    continue
+                if response.status_code == 200 and response.content:
+                    return response.content, _audio_mime(response, target)
+                errors.append(f"{label} {response.status_code}")
+        raise RuntimeError("; ".join(errors) or "no recording source")
 
     return download
 

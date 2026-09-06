@@ -356,7 +356,9 @@ class ImportState:
         )
 
 
-Downloader = Callable[[str], tuple[bytes, str]]
+# (vapi_call_id, stored_url) -> (audio bytes, mime). Stored URLs expire, so a
+# downloader normally prefers Vapi's GET /call/{id}/mono-recording route.
+Downloader = Callable[[str, str | None], tuple[bytes, str]]
 
 
 class VapiImporter:
@@ -488,7 +490,6 @@ class VapiImporter:
             record_id = self._state.calls.get(mapping.vapi_id)
             if (
                 record_id
-                and mapping.recording_url
                 and self._downloader is not None
                 and not self._dry_run
                 and mapping.vapi_id not in self._state.recordings
@@ -499,11 +500,11 @@ class VapiImporter:
             self.report.append(entry)
 
     def _upload_recording(
-        self, tenant_id: UUID, record_id: str, vapi_id: str, url: str
+        self, tenant_id: UUID, record_id: str, vapi_id: str, url: str | None
     ) -> str:
         assert self._downloader is not None
         try:
-            content, mime = self._downloader(url)
+            content, mime = self._downloader(vapi_id, url)
         except Exception as error:  # report per call and keep importing
             return f"download_failed: {error}"
         suffix = ".mp3" if "mpeg" in mime else ".wav"
@@ -521,15 +522,17 @@ class VapiImporter:
     # -- tenants / users --------------------------------------------------
     def ensure_tenants(self, tenants: list[dict[str, Any]]) -> None:
         """Create tenants via the admin API (requires a platform_admin token)."""
-        if not self._token:
+        if not self._token and not self._dry_run:
             raise RuntimeError("ensure_tenants requires an admin token")
-        existing = {
-            item["id"]
-            for item in self._api.get(
-                "/api/v1/admin/tenants",
-                headers={"Authorization": f"Bearer {self._token}"},
-            ).json()["items"]
-        }
+        existing: set[str] = set()
+        if self._token:
+            existing = {
+                item["id"]
+                for item in self._api.get(
+                    "/api/v1/admin/tenants",
+                    headers={"Authorization": f"Bearer {self._token}"},
+                ).json()["items"]
+            }
         for tenant in tenants:
             entry = {
                 "kind": "tenant",
@@ -555,7 +558,7 @@ class VapiImporter:
 
     def ensure_users(self, users: list[dict[str, Any]]) -> None:
         """Create operator accounts; generated passwords are written to the report."""
-        if not self._token:
+        if not self._token and not self._dry_run:
             raise RuntimeError("ensure_users requires an admin token")
         for user in users:
             password = user.get("password") or secrets.token_urlsafe(12)

@@ -14,9 +14,11 @@ Behavior:
   - Stage1 uses a separate Postgres database on the shared Docker instance
     (default name yino_platform_stage1), never the production database name
 """
+
 from __future__ import annotations
 
 import os
+import secrets
 import sys
 import tarfile
 import tempfile
@@ -33,9 +35,10 @@ STAGE_API_PORT = 8011
 STAGE_AGENT_NAME = "yino-customer-service-stage1"
 STAGE_PREFIX = "/stage1"
 STAGE_DATABASE_NAME = os.environ.get("STAGE_DATABASE_NAME", "yino_platform_stage1")
-POSTGRES_CONTAINER = os.environ.get(
-    "YINO_POSTGRES_CONTAINER", "yino-platform-postgres"
-)
+# Optional console bootstrap; only seeds while user_accounts is empty.
+ADMIN_ACCOUNT = os.environ.get("PLATFORM_ADMIN_ACCOUNT", "")
+ADMIN_PASSWORD = os.environ.get("PLATFORM_ADMIN_PASSWORD", "")
+POSTGRES_CONTAINER = os.environ.get("YINO_POSTGRES_CONTAINER", "yino-platform-postgres")
 
 LOCAL_ROOT = Path(__file__).resolve().parents[1]
 LOCAL_FRONT_DIST = LOCAL_ROOT / "apps" / "control-plane" / "web" / "dist"
@@ -43,9 +46,7 @@ LOCAL_PLATFORM = LOCAL_ROOT / "apps" / "control-plane" / "api"
 LOCAL_VOICE = LOCAL_ROOT / "apps" / "runtime" / "voice-agent"
 
 REMOTE_NGINX = "/www/server/panel/vhost/nginx/yino-vapi-443.conf"
-REMOTE_NGINX_SNIPPET = (
-    "/www/server/panel/vhost/nginx/extension/yino-vapi-stage1.conf"
-)
+REMOTE_NGINX_SNIPPET = "/www/server/panel/vhost/nginx/extension/yino-vapi-stage1.conf"
 
 
 def run(ssh: paramiko.SSHClient, cmd: str, check: bool = True) -> str:
@@ -83,6 +84,38 @@ def pack_tree(src: Path, arc_root: str, tar: tarfile.TarFile) -> None:
 def write_remote(sftp: paramiko.SFTPClient, path: str, content: str) -> None:
     with sftp.file(path, "w") as handle:
         handle.write(content)
+
+
+def upsert_env_secrets(
+    sftp: paramiko.SFTPClient, path: str, values: dict[str, str]
+) -> list[str]:
+    """Set keys in a remote env file over SFTP.
+
+    Secrets never reach exec_command, so they stay out of the command echo and
+    the shell history. Existing values are kept: rotating AUTH_SECRET would
+    invalidate every issued bearer token.
+    """
+    try:
+        with sftp.file(path, "r") as handle:
+            lines = handle.read().decode("utf-8").splitlines()
+    except OSError:
+        lines = []
+    present = {
+        line.split("=", 1)[0].strip()
+        for line in lines
+        if line.strip() and not line.strip().startswith("#") and "=" in line
+    }
+    added = []
+    for key, value in values.items():
+        if key in present or not value:
+            continue
+        lines.append(f"{key}={value}")
+        added.append(key)
+    if added:
+        with sftp.file(path, "w") as handle:
+            handle.write("\n".join(lines) + "\n")
+        sftp.chmod(path, 0o600)
+    return added
 
 
 def main() -> None:
@@ -317,6 +350,22 @@ PY
 """,
         )
 
+        # Console login secrets. AUTH_SECRET is generated once and reused so
+        # restarts do not invalidate tokens; the admin bootstrap only applies
+        # while user_accounts is empty.
+        sftp = ssh.open_sftp()
+        added = upsert_env_secrets(
+            sftp,
+            f"{REMOTE_ROOT}/config/platform-api.env",
+            {
+                "AUTH_SECRET": secrets.token_urlsafe(32),
+                "PLATFORM_ADMIN_ACCOUNT": ADMIN_ACCOUNT,
+                "PLATFORM_ADMIN_PASSWORD": ADMIN_PASSWORD,
+            },
+        )
+        sftp.close()
+        print(f"env keys added: {added or 'none (already present)'}")
+
         # Create isolated DB (same Docker Postgres) and migrate Stage1 schema.
         run(
             ssh,
@@ -338,6 +387,17 @@ docker exec {POSTGRES_CONTAINER} psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP
   || docker exec {POSTGRES_CONTAINER} psql -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c \
   "CREATE DATABASE {STAGE_DATABASE_NAME} OWNER \\"$DB_USER\\";"
 echo STAGE_DB_READY
+# Dump before migrating so a failed upgrade can be rolled back.
+mkdir -p {REMOTE_ROOT}/backups
+STAMP=$(date +%Y%m%d-%H%M%S)
+DUMP={REMOTE_ROOT}/backups/{STAGE_DATABASE_NAME}-$STAMP.sql
+if docker exec {POSTGRES_CONTAINER} pg_dump -U "$DB_USER" -d {STAGE_DATABASE_NAME} > "$DUMP" 2>/dev/null; then
+  gzip -f "$DUMP"
+  echo "STAGE_DB_BACKUP=$DUMP.gz ($(du -h "$DUMP.gz" | cut -f1))"
+else
+  rm -f "$DUMP"
+  echo "STAGE_DB_BACKUP=skipped (empty or new database)"
+fi
 cd {REMOTE_ROOT}/platform-api
 set -a
 . {REMOTE_ROOT}/config/platform-api.env

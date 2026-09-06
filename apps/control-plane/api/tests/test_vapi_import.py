@@ -238,10 +238,10 @@ def test_end_to_end_import_is_idempotent_and_stores_recordings(tmp_path: Path) -
     def tenant_for(vapi_id: str) -> UUID:
         return other_tenant if vapi_id == "asst-zh-1" else DEMO_TENANT_ID
 
-    downloads: list[str] = []
+    downloads: list[tuple[str, str | None]] = []
 
-    def downloader(url: str) -> tuple[bytes, str]:
-        downloads.append(url)
+    def downloader(call_id: str, url: str | None) -> tuple[bytes, str]:
+        downloads.append((call_id, url))
         return b"RIFF....WAVEfmt fake", "audio/wav"
 
     state_path = tmp_path / "state.json"
@@ -270,7 +270,7 @@ def test_end_to_end_import_is_idempotent_and_stores_recordings(tmp_path: Path) -
     assert statuses[("user", "ops-b")] == "created"
     call_entry = next(e for e in importer.report if e.get("vapi_id") == "call-1")
     assert call_entry["recording"] == "stored"
-    assert downloads == ["https://recordings.example.test/call-1.wav"]
+    assert downloads == [("call-1", "https://recordings.example.test/call-1.wav")]
 
     demo_headers = {"X-Tenant-ID": str(DEMO_TENANT_ID)}
     records = client.get("/api/v1/call-records", headers=demo_headers).json()
@@ -314,6 +314,60 @@ def test_end_to_end_import_is_idempotent_and_stores_recordings(tmp_path: Path) -
     assert login.json()["tenant_id"] == str(other_tenant)
 
 
+def test_recording_pass_tries_api_route_without_a_stored_url(tmp_path: Path) -> None:
+    client = _app_client(tmp_path / "recordings")
+    seen: list[tuple[str, str | None]] = []
+
+    def downloader(call_id: str, url: str | None) -> tuple[bytes, str]:
+        seen.append((call_id, url))
+        return b"RIFF....WAVEfmt fake", "audio/wav"
+
+    importer = VapiImporter(
+        client,
+        state=ImportState(tmp_path / "state.json"),
+        tenant_for=lambda _vapi_id: DEMO_TENANT_ID,
+        downloader=downloader,
+    )
+    importer.import_assistants([ASSISTANT_EN])
+    no_url = {k: v for k, v in CALL.items() if k != "recordingUrl"}
+    no_url["artifact"] = {"messages": CALL["artifact"]["messages"]}
+    importer.import_calls([no_url])
+
+    assert seen == [("call-1", None)]
+    entry = next(e for e in importer.report if e.get("vapi_id") == "call-1")
+    assert entry["recording"] == "stored"
+    record = client.get(
+        "/api/v1/call-records", headers={"X-Tenant-ID": str(DEMO_TENANT_ID)}
+    ).json()["items"][0]
+    assert record["recording_status"] == "ready"
+
+
+def test_recording_failure_is_reported_without_failing_the_call(tmp_path: Path) -> None:
+    client = _app_client(tmp_path / "recordings")
+
+    def downloader(call_id: str, url: str | None) -> tuple[bytes, str]:
+        raise RuntimeError("api 400; url 400")
+
+    importer = VapiImporter(
+        client,
+        state=ImportState(tmp_path / "state.json"),
+        tenant_for=lambda _vapi_id: DEMO_TENANT_ID,
+        downloader=downloader,
+    )
+    importer.import_assistants([ASSISTANT_EN])
+    importer.import_calls([CALL])
+
+    entry = next(e for e in importer.report if e.get("vapi_id") == "call-1")
+    assert entry["status"] == "created"
+    assert entry["recording"].startswith("download_failed")
+    # The call itself must still be queryable; only the audio is missing.
+    records = client.get(
+        "/api/v1/call-records", headers={"X-Tenant-ID": str(DEMO_TENANT_ID)}
+    ).json()
+    assert records["total"] == 1
+    assert records["items"][0]["recording_status"] == "none"
+
+
 def test_dry_run_writes_nothing(tmp_path: Path) -> None:
     client = _app_client(tmp_path / "recordings")
     importer = VapiImporter(
@@ -322,10 +376,18 @@ def test_dry_run_writes_nothing(tmp_path: Path) -> None:
         tenant_for=lambda _vapi_id: DEMO_TENANT_ID,
         dry_run=True,
     )
+    # A dry run must work without an admin token: nothing is sent to the API.
+    importer.ensure_tenants([{"id": str(DEMO_TENANT_ID), "name": "Demo"}])
     importer.import_assistants([ASSISTANT_EN])
     importer.import_calls([CALL])
+    importer.ensure_users([{"account": "ops", "tenant_id": str(DEMO_TENANT_ID)}])
     assert {e["status"] for e in importer.report} == {"dry_run"}
-    assert all("payload" in e for e in importer.report)
+    assert {e["kind"] for e in importer.report} == {
+        "tenant",
+        "assistant",
+        "call",
+        "user",
+    }
     assert (
         client.get(
             "/api/v1/customer-services", headers={"X-Tenant-ID": str(DEMO_TENANT_ID)}
