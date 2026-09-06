@@ -62,7 +62,7 @@ async def test_reassigning_an_instance_carries_its_child_rows() -> None:
 
     from sqlalchemy import text
 
-    from yino_platform_api.domain.call_record import CallRecordCreate
+    from yino_platform_api.domain.call_record import CallRecord, TranscriptMessage
     from yino_platform_api.repositories.postgres.call_records import (
         PostgresCallRecordRepository,
     )
@@ -79,9 +79,11 @@ async def test_reassigning_an_instance_carries_its_child_rows() -> None:
             TenantCreate(id=uuid4(), name="Move Target", home_region="ap-southeast")
         )
         started = datetime.now(UTC)
-        record = await calls.create(
-            DEMO_TENANT_ID,
-            CallRecordCreate(
+        record = await calls.save(
+            CallRecord(
+                id=uuid4(),
+                tenant_id=DEMO_TENANT_ID,
+                created_at=started,
                 customer_service_id=DEMO_CUSTOMER_SERVICE_ID,
                 room_name=f"move-{uuid4().hex[:8]}",
                 status="completed",
@@ -89,8 +91,9 @@ async def test_reassigning_an_instance_carries_its_child_rows() -> None:
                 ended_at=started,
                 duration_sec=1,
                 direction="web",
-                messages=[{"role": "user", "text": "hello", "sequence": 0}],
-            ),
+                ended_reason="completed",
+                messages=[TranscriptMessage(role="user", text="hello", sequence=0)],
+            )
         )
 
         moved = await services.reassign_tenant(
@@ -106,13 +109,13 @@ async def test_reassigning_an_instance_carries_its_child_rows() -> None:
                 )
             )
             assert call_tenant == target.id
-            knowledge = await session.scalar(
+            stranded = await session.scalar(
                 text(
                     "select count(*) from knowledge_documents "
                     "where instance_id = :i and tenant_id <> :t"
                 ).bindparams(i=DEMO_CUSTOMER_SERVICE_ID, t=target.id)
             )
-            assert knowledge == 0
+            assert stranded == 0
         assert await services.get(DEMO_CUSTOMER_SERVICE_ID, DEMO_TENANT_ID) is None
         assert await services.get(DEMO_CUSTOMER_SERVICE_ID, target.id) is not None
 
@@ -120,7 +123,11 @@ async def test_reassigning_an_instance_carries_its_child_rows() -> None:
         await services.reassign_tenant(
             DEMO_CUSTOMER_SERVICE_ID, target.id, DEMO_TENANT_ID
         )
-        await calls.hard_delete(record.id, DEMO_TENANT_ID)
+        async with sessions() as session:
+            await session.execute(
+                text("delete from call_records where id = :i").bindparams(i=record.id)
+            )
+            await session.commit()
     finally:
         await engine.dispose()
 
