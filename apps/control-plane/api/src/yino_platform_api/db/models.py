@@ -330,6 +330,7 @@ class CallMessageRow(Base):
             ["call_records.tenant_id", "call_records.id"],
             name="call_messages_call_record_fkey",
             ondelete="CASCADE",
+            onupdate="CASCADE",
         ),
     )
 
@@ -373,6 +374,7 @@ class AppointmentRow(Base):
             ["tenant_id", "service_offering_id"],
             ["service_offerings.tenant_id", "service_offerings.id"],
             name="appointments_offering_fkey",
+            onupdate="CASCADE",
         ),
     )
 

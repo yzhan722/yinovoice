@@ -109,6 +109,21 @@ async def test_reassigning_an_instance_carries_its_child_rows() -> None:
                 )
             )
             assert call_tenant == target.id
+            # call_messages keys on (tenant_id, call_record_id): the second
+            # cascade level is what made the first attempt fail.
+            message_tenants = (
+                (
+                    await session.execute(
+                        text(
+                            "select distinct tenant_id from call_messages "
+                            "where call_record_id = :i"
+                        ).bindparams(i=record.id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert message_tenants == [target.id]
             stranded = await session.scalar(
                 text(
                     "select count(*) from knowledge_documents "
